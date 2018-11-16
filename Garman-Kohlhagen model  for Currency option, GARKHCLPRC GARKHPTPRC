@@ -1,0 +1,56 @@
+Program
+proc fcmp outlib=sasuser.exsubs.pkt1;
+   subroutine calc_years(maturity, current_date, years);
+      outargs years;
+      years=(maturity - current_date) / 365.25;
+   endsub;
+function garkhprc(type$, buysell$, amount,E, t, S, rd, rf, sig);
+      if buysell="Buy" then sign=1.;
+      else do;
+         if buysell="Sell" then sign=-1.;
+         else sign=.;
+      end;
+
+      if type="Call" then
+         garkhprc=sign * amount * garkhptprc(E, t, S, rd, rf, sig);
+      else do;
+         if type="Put" then
+            garkhprc=sign * amount * garkhptprc(E, t, S, rd, rf, sig);
+         else garkhprc=.;
+      end;
+return(garkhprc);
+run;
+endfunc;
+Program Description
+Specify the entry where the function package information is saved.The package is a three-level name.
+proc fcmp outlib=sasuser.exsubs.pkt1;
+Create a function to calculate years to maturity.A generic function called CALC_YEARS is declared to calculate years to maturity from date variables that are stored as the number of days. The OUTARGS statement specifies the variable that is updated by CALC_YEARS.
+   subroutine calc_years(maturity, current_date, years);
+      outargs years;
+      years=(maturity - current_date) / 365.25;
+   endsub;
+Create a function for Garman-Kohlhagen pricing for FX options.A function called GARKHPRC is declared, which calculates Garman-Kohlhagen pricing for FX options. The function uses the SAS functions GARKHCLPRC and GARKHPTPRC.
+function garkhprc(type$, buysell$, amount,E, t, S, rd, rf, sig);
+      if buysell="Buy" then sign=1.;
+      else do;
+         if buysell="Sell" then sign=-1.;
+         else sign=.;
+      end;
+
+      if type="Call" then
+         garkhprc=sign * amount * garkhptprc(E, t, S, rd, rf, sig);
+      else do;
+         if type="Put" then
+            garkhprc=sign * amount * garkhptprc(E, t, S, rd, rf, sig);
+         else garkhprc=.;
+      end;
+The RETURN statement returns the value of the GARKHPRC function.
+return(garkhprc);
+Execute the FCMP procedure.The RUN statement executes the FCMP procedure.
+run;
+Close the function.The endfunc statement closes the function.
+endfunc;
+Log
+Location of Functions That Are Saved
+NOTE: Function garkhprc saved to sasuser.exsubs.pkt1.
+NOTE: Function calc_years saved to sasuser.exsubs.pkt1.
