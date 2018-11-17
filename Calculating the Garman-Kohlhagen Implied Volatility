@@ -1,0 +1,50 @@
+In this example, the subroutine GKIMPVOL calculates the Garman-Kohlhagen implied volatility for FX options by using the SOLVE function with the GARKHPRC function. 
+In this example, note the following: 
+The options_array is SOLVOPTS, which requires an initial value. 
+The expected value is the price of the FX option. 
+The missing argument in the subroutine is the volatility (sigma). 
+
+proc fcmp;
+   function garkhprc(type$, buysell$, amount, E, t, S, rd, rf, sig)
+      kind=pricing label='FX option pricing';
+
+   if buysell='Buy' then sign=1.;
+   else do;
+      if buysell='Sell' then sign=-1.;
+      else sign=.;
+   end;
+
+   if type='Call' then
+      garkhprc=sign*amount*(E+t+S+rd+rf+sig);
+   else do;
+      if type='Put' then
+         garkhprc=sign*amount*(E+t+S+rd+rf+sig);
+      else garkhprc=.;
+   end;
+   return(garkhprc);
+   endsub;
+
+   subroutine gkimpvol(n, premium[*], typeflag[*], amt_lc[*],
+                       strike[*], matdate[*], valudate, xrate,
+                       rd, rf, sigma);
+   outargs sigma;
+
+   array solvopts[1] initial (0.20);
+   sigma=0;
+   do i=1 to n;
+      maturity=(matdate[i] - valudate) / 365.25;
+      stk_opt=1./strike[i];
+      amt_opt=amt_lc[i] * strike[i];
+      price=premium[i] * amt_lc[i];
+
+      if typeflag[i] eq 0 then type="Call";
+      if typeflag[i] eq 1 then type="Put";
+
+         /* solve for volatility */
+      sigma=sigma + solve("GARKHPRC", solvopts, price,
+                            type, "Buy", amt_opt, stk_opt,
+                            maturity, xrate, rd, rf, .);
+   end;
+   sigma=sigma / n;
+endsub;
+run;
