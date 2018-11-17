@@ -1,4 +1,3 @@
-Program
 proc fcmp outlib=sasuser.exsubs.pkt1;
    subroutine calc_years(maturity, current_date, years);
       outargs years;
@@ -12,7 +11,7 @@ function garkhprc(type$, buysell$, amount,E, t, S, rd, rf, sig);
       end;
 
       if type="Call" then
-         garkhprc=sign * amount * garkhptprc(E, t, S, rd, rf, sig);
+         garkhprc=sign * amount * garkhclprc(E, t, S, rd, rf, sig);
       else do;
          if type="Put" then
             garkhprc=sign * amount * garkhptprc(E, t, S, rd, rf, sig);
@@ -21,6 +20,8 @@ function garkhprc(type$, buysell$, amount,E, t, S, rd, rf, sig);
 return(garkhprc);
 run;
 endfunc;
+
+
 Program Description
 Specify the entry where the function package information is saved.The package is a three-level name.
 proc fcmp outlib=sasuser.exsubs.pkt1;
@@ -38,7 +39,7 @@ function garkhprc(type$, buysell$, amount,E, t, S, rd, rf, sig);
       end;
 
       if type="Call" then
-         garkhprc=sign * amount * garkhptprc(E, t, S, rd, rf, sig);
+         garkhprc=sign * amount * garkhclprc(E, t, S, rd, rf, sig);
       else do;
          if type="Put" then
             garkhprc=sign * amount * garkhptprc(E, t, S, rd, rf, sig);
@@ -52,5 +53,6 @@ Close the function.The endfunc statement closes the function.
 endfunc;
 Log
 Location of Functions That Are Saved
+
 NOTE: Function garkhprc saved to sasuser.exsubs.pkt1.
 NOTE: Function calc_years saved to sasuser.exsubs.pkt1.
