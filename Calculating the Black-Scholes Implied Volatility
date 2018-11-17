@@ -1,0 +1,38 @@
+This SOLVE function example defines the function BLKSCH by using the built-in SAS function BLKSHCLPRC. The SOLVE function uses the BLKSCH function to calculate the Black-Scholes implied volatility of an option. 
+In this example, note the following: 
+The options_array is OPTS. 
+The missing argument in the function is the volatility (VOLTY). 
+PUT statements are used to write the implied volatility (BSVOLTY), the initial value, and the solve status. 
+
+options pageno=1 nodate ls=80 ps=64;
+
+proc fcmp;
+   opt_price=5;
+   strike=50;
+   today='20jul2010'd;
+   exp='21oct2010'd;
+   eq_price=50;
+   intrate=.05;
+   time=exp - today;
+   array opts[5] initial abconv relconv maxiter status
+                 (.5 .001 1.0e-6 100 -1);
+   function blksch(strike, time, eq_price, intrate, volty);
+      return(blkshclprc(strike, time/365.25,
+                        eq_price, intrate, volty));
+   endsub;
+   bsvolty=solve("blksch", opts, opt_price, strike,
+                             time, eq_price, intrate, .);
+
+   put 'Option Implied Volatility:' bsvolty
+       'Initial value: ' opts[1]
+       'Solve status: ' opts[5];
+run;
+Results of Calculating the Black-Scholes Implied Volatility
+                                 The SAS System                                1
+
+                               The FCMP Procedure
+
+Option Implied Volatility: 0.4687011859 Initial value:  0.5 Solve status:  0
+Note: SAS functions and external C functions cannot be used directly in the SOLVE function. They must be enclosed in a PROC FCMP function.
+In this example, the built-in SAS function BLKSHCLPRC is enclosed in the PROC FCMP function BLKSCH, and then BLKSCH is called in the SOLVE
+function. 
