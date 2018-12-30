@@ -1,0 +1,11 @@
+/*Creating View*/
+PROC SQL;
+Create view DriveType As
+    Select Make, Model, Type, Origin, DriveTrain, MSRP
+    From SASHELP.CARS 
+    Where DriveTrain = 'Rear'
+    Order by MSRP;
+/*Show DriveType View*/
+Select * 
+From DriveType; 
+QUIT;
