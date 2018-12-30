@@ -1,0 +1,6 @@
+/*Inserting a Blank raw into Output*/
+PROC SQL DOUBLE;
+SELECT * 
+FROM SASHELP.CARS 
+ORDER BY TYPE;
+QUIT;
