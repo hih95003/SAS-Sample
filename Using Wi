@@ -1,6 +1,0 @@
-/*Using Wildcard Charactor for Searching*/
-PROC SQL;
-SELECT Model
-FROM SASHELP.CARS
-Where Upcase(Model) Like '%CI%'; 
-QUIT;

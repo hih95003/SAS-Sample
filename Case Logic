@@ -1,0 +1,11 @@
+/*Case Logic*/
+PROC SQL;
+Select Make, Model, 
+Case 
+    WHEN DriveTrain = 'All' Then '4WD' 
+    WHEN DriveTrain = 'Front' Then 'Front-Drive' 
+    WHEN DriveTrain = 'Rear' Then 'Rear-Drive'
+Else '' 
+End AS DriveMechanizm 
+From SASHELP.CARS; 
+QUIT;
