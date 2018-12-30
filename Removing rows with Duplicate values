@@ -1,0 +1,5 @@
+/*Removing Row with Duplicate Values*/
+PROC SQL;
+SELECT Distinct Make
+FROM SASHELP.CARS 
+QUIT;            
