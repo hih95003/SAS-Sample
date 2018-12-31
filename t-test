@@ -1,0 +1,32 @@
+/*t-test*/
+PROC SQL;
+Create table Male As
+Select Sex AS Sex, Height 
+From SASHELP.CLASS 
+Where Sex = 'M';
+QUIT;
+
+PROC SQL;
+Create table Female As
+Select Sex AS Sex, Height 
+From SASHELP.CLASS 
+Where Sex = 'F';
+QUIT;
+
+/*merge tables of Male and Female*/
+data combine;
+   merge Male Female;
+   by Sex;
+run;
+
+proc sql;
+create table combined as
+select * from Male
+union all
+select * from Female;
+quit;
+
+proc ttest; 
+class Sex; 
+var Height; 
+run;
