@@ -1,0 +1,10 @@
+/*chai-square_test*/
+PROC SQL;
+Create table Prod_Area As
+Select Origin, Type 
+From SASHELP.CARS; 
+Quit;
+
+Proc Freq;
+Tables Origin*Type/chisq;
+Run;
