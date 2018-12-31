@@ -1,0 +1,10 @@
+/*Correlation*/
+PROC SQL;
+Create table Engine As
+Select Invoice, EngineSize 
+From SASHELP.CARS;
+QUIT;
+
+Proc Corr pearson spearman kendall rank;
+Var Invoice EngineSize;
+Run;
