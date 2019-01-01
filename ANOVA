@@ -1,0 +1,11 @@
+/*ANOVA*/
+Proc SQL;
+Create table AnovaData As 
+Select invoice, type, origin 
+From sashelp.cars; 
+Quit;
+
+Proc ANOVA;
+Class type origin;
+Model invoice = type origin;
+Run;
