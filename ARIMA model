@@ -1,0 +1,26 @@
+/*ARIMA model*/
+PROC SQL;
+Create table Invest As
+Select date, invest 
+From sashelp.gnp;
+QUIT;
+
+/*plot data*/
+proc sgplot data=invest;
+scatter x=date y=invest;
+series x=Date y=invest;
+run;
+/*run ARIMA process*/
+Proc ARIMA; 
+Identify var = invest(1) Center; 
+Estimate p=1 q=0 method=ml Noconstant; 
+Forecast out=GNPFC lead=6 interval=qtr id=date; 
+Run;
+
+/*plot forecast*/
+proc sgplot data=GNPFC; 
+where date >= '1jan85'd;  
+band Upper=u95 Lower=l95 x=date / LegendLabel="95% Confidence Limits";
+scatter x=Date y=invest;
+series x=Date y=forecast;
+run;
