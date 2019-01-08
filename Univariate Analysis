@@ -1,0 +1,36 @@
+/*Univariate Procedure:Efficiency Analysis of stock relative return*/
+PROC SQL;
+Create table IBM As
+Select date, close 
+From sashelp.stocks 
+Where stock = 'IBM';
+QUIT;
+
+proc sgplot data=IBM;
+scatter x=date y=close;
+series x=Date y=close;
+run;
+
+PROC SQL;
+Create table returnIBM As
+Select date, (log(close(1))-log(close))  AS return
+From IBM
+order by date asc;
+QUIT;
+
+proc sgplot data=returnIBM;
+scatter x=date y=return;
+series x=date y=return;
+run;
+
+Proc Univariate data=returnIBM; 
+var return; 
+histogram return;
+title 'return Histogram'; 
+Run;
+
+Proc univariate data=returnIBM;
+var return; 
+qqplot return /normal(mu=est sigma=est) pctlminor;
+title 'Return Q-Q Plot'; 
+Run;
