@@ -1,0 +1,971 @@
+options validmemname=extend validvarname=any;
+
+
+/*ディレクトリー名の設定*/
+%let dir_name = \\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\;
+%let fld_in = SAS_Output\;
+%let fld_pass = &dir_name.&fld_in;
+
+/*設定値の出力*/
+%put &dir_name;		%put &fld_in;       %put &fld_pass;
+
+
+/*参照先ディレクトリ設定*/
+filename Data0 '\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\Data from Prelude\FX_MID_20190329.csv';
+filename Data1 '\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\Data from Prelude\Prelude_値洗結果一覧_20190331.xlsx';
+filename Data3 '\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\Data from Finance\OBIC_20190331.xlsx';
+filename Data4 '\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\Data from Prelude\FX_MID_JPY.csv';
+filename Data5 '\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\FX_Exposure_LD2.xlsx';
+filename Data6 '\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\Data from Prelude\Prelude_約定一覧_20190329.xlsx';
+
+
+/*データのインポート*/
+/*期日データの取込み*/
+PROC IMPORT DATAFILE=Data5
+	OUT=WORK.Date_LD2
+	DBMS=XLSX
+	REPLACE;
+	Sheet="Date";
+RUN;
+
+/*為替約定データの取込み*/
+PROC IMPORT DATAFILE=Data1
+	OUT=WORK.FX_DEAL_LD2
+	DBMS=XLSX
+	REPLACE;
+	Sheet="約定_為替";
+RUN;
+
+/*為替仲値の取り込みおよび為替仲値のｸｴﾘｰﾃｰﾌﾞﾙの作成*/
+PROC IMPORT DATAFILE=Data0
+	Out=Work.CCY_LD2
+	DBMS=CSV
+	Replace;
+RUN;
+
+PROC IMPORT DATAFILE=Data4
+	Out=Work.CCY_JPY
+	DBMS=CSV
+	Replace;
+RUN;
+
+/*OBIC勘定残高の取込み*/
+PROC IMPORT DATAFILE=Data3
+	OUT=WORK.OBIC
+	DBMS=XLSX
+	REPLACE;
+	Sheet="Sheet1";
+RUN;
+
+/*為替アフター取引データの取込み*/
+PROC IMPORT DATAFILE=Data6
+	OUT=WORK.fx_after
+	DBMS=XLSX
+	REPLACE;
+	Sheet="為替";
+RUN;
+
+/*為替ｵﾌﾟｼｮﾝ約定ﾃﾞｰﾀの取込み*/
+PROC IMPORT DATAFILE=Data1
+	OUT=WORK.fx_option
+	DBMS=XLSX
+	REPLACE;
+	Sheet="約定_通貨ｵﾌﾟｼｮﾝ";
+RUN;
+
+/*ラダーデータの取込み*/
+PROC IMPORT DATAFILE=Data5
+	OUT=WORK.Ladder
+	DBMS=XLSX
+	REPLACE;
+	Sheet="Ladder";
+RUN;
+
+
+PROC SQL; 
+CREATE TABLE Work.Q_CCY_LD2 
+AS 
+SELECT substrn(ccy_pair, 1, 3) AS CCY, fx_mid_rate AS Rate FROM WORK.CCY_LD2
+union
+SELECT ccy_pair AS CCY, fx_mid_rate AS Rate FROM WORK.CCY_JPY
+
+QUIT;
+
+/*FX取引*/
+/*FX取引の抽出(シティ当日決済取引とｼｽﾃﾑ自動生成取引を除く)*/
+%let var = 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 
+MDY(INPUT(substrn(約定日時,6 ,2),2.),INPUT(substrn(約定日時,9 ,2),2.),INPUT(substrn(約定日時,1 ,4),4.)) as 約定日時 format=mmddyys10., 
+MDY(INPUT(substrn(為替約定1_受渡日_期間開始,6 ,2),2.),INPUT(substrn(為替約定1_受渡日_期間開始,9 ,2),2.),INPUT(substrn(為替約定1_受渡日_期間開始,1 ,4),4.)) as 受渡日 format=mmddyy10., 
+為替約定1_売買区分ｺｰﾄﾞ AS 売買コード, 為替約定1_売買区分 AS 売買, substrn(為替約定1_通貨ﾍﾟｱ, 1 ,3) AS 基軸通貨, 為替約定1_基軸通貨金額 AS 基軸金額, 
+substrn(為替約定1_通貨ﾍﾟｱ, 5, 3) AS 相手通貨, 為替約定1_相手通貨金額 AS 相手金額, 為替約定1_約定ﾚｰﾄ AS 約定レート, 
+'時価(円貨)'n AS 円時価, ﾃﾞｰﾀ取得元区分 AS 取得元区分;
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_DEAL_LD2 
+AS 
+SELECT &var
+FROM WORK.FX_DEAL_LD2 
+Where 取引先ｺｰﾄﾞ^=2089 And 取引先ｺｰﾄﾞ^=-1;
+QUIT;
+
+/*FX_ｱｳﾄﾗｲﾄ取引の抽出*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_OUTRIGHT_LD2 
+AS 
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 取得元区分, 円時価, 
+DATE_LD2.基準日 AS 基準日 format=mmddyys10., 
+DATE_LD2.期末日 AS 期末日 format=mmddyys10.,
+DATE_LD2.'SPOT'n AS SPOT format=mmddyys10., 
+DATE_LD2.'TOM'n AS TOM format=mmddyys10.,
+DATE_LD2.'TOM約定日'n AS TOM約定日 format=mmddyys10. 
+FROM WORK.Q_FX_DEAL_LD2, WORK.DATE_LD2 
+WHERE 
+   ( 
+      ( Q_FX_DEAL_LD2.'商品ｺｰﾄﾞ'n = 202 ) AND 
+      ( DATE_LD2.'期末日'n < Q_FX_DEAL_LD2.'受渡日'n ) 
+   ) /*AND 
+   (
+   ( 
+      ( DATE_LD2.'TOM約定日'n > Q_FX_DEAL_LD2.'約定日時'n ) AND 
+      ( DATE_LD2.'TOM'n <= Q_FX_DEAL_LD2.'受渡日'n ) 
+   ) OR
+   ( 
+      ( DATE_LD2.'基準日'n > Q_FX_DEAL_LD2.'約定日時'n ) AND 
+      ( DATE_LD2.'SPOT'n <= Q_FX_DEAL_LD2.'受渡日'n ) 
+   ) OR
+   ( 
+      ( DATE_LD2.'基準日'n > Q_FX_DEAL_LD2.'約定日時'n ) AND 
+      ( DATE_LD2.'SPOT'n < Q_FX_DEAL_LD2.'受渡日'n ) 
+   ) 
+   )*/ 
+; 
+QUIT;
+
+/*FX SWAP_1テーブルの作成：SWAP取引の抽出*/
+%let var = 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分, 
+DATE_LD2.基準日 AS 基準日 format=mmddyys10., 
+DATE_LD2.期末日 AS 期末日 format=mmddyys10.,
+DATE_LD2.'SPOT'n AS SPOT format=mmddyys10., 
+DATE_LD2.'TOM'n AS TOM format=mmddyys10.,
+DATE_LD2.'TOM約定日'n AS TOM約定日 format=mmddyys10. ; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_SWAP1_LD2 
+AS 
+SELECT &var.
+FROM WORK.Q_FX_DEAL_LD2 Q_FX_DEAL_LD2, WORK.DATE_LD2 DATE_LD2 
+WHERE Q_FX_DEAL_LD2.'商品ｺｰﾄﾞ'n = 204;  
+Quit;
+
+
+/*FX Swap_2テーブルの作成：取引の期先取引への損益の付け替え*/
+data Q_FX_SWAP2_LD2;
+ if _n_ = 1 then do;
+   declare hash hx();
+    hx.defineKey('取引番号','NO');
+    hx.definedata('_円時価');
+    hx.definedone();
+  do while (^FL);
+   set Q_FX_SWAP1_LD2 end=FL;
+   by 取引番号;
+   if first.取引番号 then NO=0;
+   NO+1;
+   _円時価=円時価;
+   hx.add();
+  end; 
+ end;
+   set Q_FX_SWAP1_LD2;
+   by 取引番号;
+   if first.取引番号 then RNO=0;
+   RNO+1;
+   /*同ID内の一つ前のデータを参照*/
+   NO=RNO-1;
+   rc=hx.find();
+   円時価_m1=ifn(rc=0,_円時価,.);
+ keep 取引番号 受渡日 円時価_m1;
+run;
+
+/*FX Swap_3テーブルの作成：FX Swap1データと2データのマージ*/
+DATA WORK.Q_FX_SWAP3_LD2;
+MERGE WORK.Q_FX_SWAP1_LD2(drop=円時価) WORK.Q_FX_SWAP2_LD2(RENAME=(円時価_m1=円時価));
+BY 取引番号 受渡日;
+RUN;
+
+/*FX Swapデータの作成：決済済み取引の削除*/
+%let var = 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分, 基準日, 期末日, SPOT, TOM, TOM約定日 ; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_SWAP_LD2 
+AS 
+SELECT &var.
+FROM WORK.Q_FX_SWAP3_LD2 Q_FX_SWAP3_LD2 
+WHERE 
+   ( 
+      ( 商品ｺｰﾄﾞ = 204 ) AND 
+      ( 期末日 < 受渡日 ) 
+   ) /*AND 
+   (
+   ( 
+      ( TOM約定日 > 約定日時 ) AND 
+      ( TOM <= 受渡日 ) 
+   ) OR
+   ( 
+      ( 基準日 >= 約定日時 ) AND 
+      ( SPOT <= 受渡日 ) 
+   ) OR
+   ( 
+      ( TOM > 約定日時 ) AND 
+      ( SPOT < 受渡日 ) 
+   ) 
+   )*/  
+; 
+QUIT;
+
+/*Q_FX_All_LD2テーブルの作成：Q_FX_OUTRIGHT_LD2とQ_FX_SWAP_LD2テーブルのマージ*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_All_LD2
+AS
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分 
+FROM Q_FX_OUTRIGHT_LD2 
+UNION
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分 
+FROM Q_FX_SWAP_LD2 
+QUIT; 
+
+/*FX_SPOT_LD2テーブルの作成：FX_ALLからSpot取引の抽出*/
+%let var = 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分, 基準日, 期末日, SPOT, TOM, TOM約定日 ; 
+
+PROC SQL; 
+CREATE TABLE WORK.FX_SPOT_LD2 
+AS 
+SELECT &var.
+FROM WORK.Q_FX_All_LD2, WORK.DATE_LD2 
+WHERE 
+   ( 
+      ( TOM約定日 <= 約定日時 ) AND 
+      ( TOM >= 受渡日 ) 
+   ) OR
+   ( 
+      ( 基準日 <= 約定日時 ) AND 
+      ( SPOT >= 受渡日 ) 
+   ) 
+; 
+QUIT;
+
+
+/*SPOT_LD2テーブルの作成：SPOTの円元本と正の時価の抽出*/
+/*FX_SPOT_基軸テーブルの作成*/
+PROC SQL; 
+CREATE TABLE WORK.FX_SPOT_基軸
+AS
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 
+int(基軸金額*Q_CCY_LD2.RATE) As 基軸円貨 
+FROM FX_SPOT_LD2 inner join Q_CCY_LD2
+on FX_SPOT_LD2.基軸通貨 = Q_CCY_LD2.CCY; 
+QUIT; 
+
+/*FX_SPOT_相手テーブルの作成*/
+PROC SQL; 
+CREATE TABLE WORK.FX_SPOT_相手
+AS
+SELECT 取引番号, 相手通貨, 相手金額, 
+int(相手金額*Q_CCY_LD2.RATE) AS 相手円貨, 
+case when 円時価 >= 0 then 円時価 
+     else 0 end AS 正の時価, 
+円時価, 取得元区分 
+FROM FX_SPOT_LD2 inner join Q_CCY_LD2
+on FX_SPOT_LD2.相手通貨 = Q_CCY_LD2.CCY; 
+QUIT; 
+
+/*FX_SPOT_LD2_1テーブルの作成：FX_SPOT_基軸データとFX_SPOT_相手データの横連結*/
+DATA WORK.FX_SPOT_LD2_1;
+MERGE WORK.FX_SPOT_基軸 WORK.FX_SPOT_相手;
+BY 取引番号;
+RUN;
+
+/*Q_FX_SPOT_LD2テーブルの作成：円元本の特定*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_SPOT_LD2
+AS
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 
+case when 売買コード = 0 then 基軸通貨 
+     else 相手通貨 end AS 買通貨, 
+case when 売買コード = 0 then 基軸金額 
+     else 相手金額 end AS 買金額, 
+case when 売買コード = 0 then 相手通貨 
+     else 基軸通貨 end AS 売通貨, 
+case when 売買コード = 0 then 相手金額 
+     else 基軸金額 end AS 売金額, 
+case when 基軸円貨 > 相手円貨 then 基軸円貨 
+    else 相手円貨 end AS 円元本, 
+正の時価, 円時価, 取得元区分 
+FROM FX_SPOT_LD2_1;
+QUIT; 
+
+/*FWD取引*/
+/*FX_FWD_LD2テーブルの作成：FX_ALLからFWD取引の抽出*/
+%let var = 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分, 基準日, 期末日, SPOT, TOM, TOM約定日 ; 
+
+PROC SQL; 
+CREATE TABLE WORK.FX_FWD_LD2 
+AS 
+SELECT &var.
+FROM WORK.Q_FX_All_LD2, WORK.DATE_LD2 
+WHERE 
+   ( 
+      ( TOM約定日 >= 約定日時 ) AND 
+      ( TOM < 受渡日 ) 
+   ) OR
+   ( 
+      ( 基準日 >= 約定日時 ) AND 
+      ( SPOT < 受渡日 ) 
+   ) OR
+   ( 
+      ( TOM約定日 > 約定日時 ) AND 
+      ( TOM <= 受渡日 ) 
+   ) 
+; 
+QUIT;
+
+/*FWD_LD2テーブルの作成：FWDの円元本と正の時価の抽出*/
+/*FX_FWD_基軸テーブルの作成*/
+PROC SQL; 
+CREATE TABLE WORK.FX_FWD_基軸
+AS
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 
+int(基軸金額*Q_CCY_LD2.RATE) As 基軸円貨 
+FROM FX_Fwd_LD2 inner join Q_CCY_LD2
+on FX_FWD_LD2.基軸通貨 = Q_CCY_LD2.CCY; 
+QUIT; 
+
+/*FX_FWD_相手テーブルの作成*/
+PROC SQL; 
+CREATE TABLE WORK.FX_FWD_相手
+AS
+SELECT 取引番号, 相手通貨, 相手金額, 
+int(相手金額*Q_CCY_LD2.RATE) AS 相手円貨, 
+case when 円時価 >= 0 then 円時価 
+     else 0 end AS 正の時価, 
+円時価, 取得元区分 
+FROM FX_FWD_LD2 inner join Q_CCY_LD2
+on FX_FWD_LD2.相手通貨 = Q_CCY_LD2.CCY; 
+QUIT; 
+
+/*FX_FWD_LD2_1テーブルの作成：FX_FWD_基軸データとFX_FWD_相手データの横連結*/
+DATA WORK.FX_FWD_LD2_1;
+MERGE WORK.FX_FWD_基軸 WORK.FX_FWD_相手;
+BY 取引番号;
+RUN;
+
+/*FX_Fwd_LD2テーブルの作成：円元本の特定*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_FWD_LD2
+AS
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 
+case when 売買コード = 0 then 基軸通貨 
+     else 相手通貨 end AS 買通貨, 
+case when 売買コード = 0 then 基軸金額 
+     else 相手金額 end AS 買金額, 
+case when 売買コード = 0 then 相手通貨 
+     else 基軸通貨 end AS 売通貨, 
+case when 売買コード = 0 then 相手金額 
+     else 基軸金額 end AS 売金額, 
+case when 基軸円貨 > 相手円貨 then 基軸円貨 
+    else 相手円貨 end AS 円元本, 
+正の時価, 円時価, 取得元区分 
+FROM FX_FWD_LD2_1;
+QUIT; 
+/*FXアフター取引の抽出*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_AFTER_LD2 
+AS 
+SELECT 取引番号, 商品種別 AS 商品, CIF, 取引先 AS 取引先名, 
+MDY(INPUT(substrn(約定日時,6 ,2),2.),INPUT(substrn(約定日時,9 ,2),2.),INPUT(substrn(約定日時,1 ,4),4.)) as 約定日 format=mmddyys10., 
+DHMS(MDY(INPUT(substrn(約定日時, 6, 2), 2.),INPUT(substrn(約定日時, 9, 2), 2.),INPUT(substrn(約定日時,1 ,4),4.)), INPUT(substrn(約定日時, 12, 2), 2.),INPUT(substrn(約定日時, 15 ,2), 2.), 0) as 約定時間 format=DATETIME., 
+MDY(INPUT(substrn(受渡日,6 ,2),2.),INPUT(substrn(受渡日,9 ,2),2.),INPUT(substrn(受渡日,1 ,4),4.)) as 受渡日 format=mmddyys10., 
+売買区分 AS 売買, 
+case when 売買区分='買' then substrn(通貨ﾍﾟｱ,1,3) 
+    else substrn(通貨ﾍﾟｱ, 5, 3) end AS 買通貨, 
+case when 売買区分='買' then 基軸通貨金額 
+    else 相手通貨金額 end AS 買金額, 
+case when 売買区分='売' then substrn(通貨ﾍﾟｱ,1,3) 
+    else substrn(通貨ﾍﾟｱ, 5, 3) end AS 売通貨, 
+case when 売買区分='売' then 基軸通貨金額 
+    else 相手通貨金額 end AS 売金額, 
+'ﾌﾞｯｸ(基軸)'n, ｱﾌﾀｰ取引, ﾃﾞｰﾀ取得元 
+FROM WORK.FX_AFTER, WORK.DATE_LD2 
+WHERE (
+    ( MDY(INPUT(substrn(約定日時, 6, 2), 2.),INPUT(substrn(約定日時, 9, 2), 2.),INPUT(substrn(約定日時,1 ,4),4.)) = Date_LD2.基準日 ) AND 
+    ( ｱﾌﾀｰ取引 = 'TRUE') AND 
+    (substrn('ﾌﾞｯｸ(基軸)'n, 1, 2)='FX') AND
+    (DHMS(MDY(INPUT(substrn(約定日時, 6, 2), 2.),INPUT(substrn(約定日時, 9, 2), 2.),INPUT(substrn(約定日時,1 ,4),4.)), INPUT(substrn(約定日時, 12, 2), 2.),INPUT(substrn(約定日時, 15 ,2), 2.), 0) 
+    between DHMS(MDY(INPUT(substrn(約定日時, 6, 2), 2.),INPUT(substrn(約定日時, 9, 2), 2.),INPUT(substrn(約定日時,1 ,4),4.)), 16, 0, 0) 
+    and DHMS(MDY(INPUT(substrn(約定日時, 6, 2), 2.),INPUT(substrn(約定日時, 9, 2), 2.),INPUT(substrn(約定日時,1 ,4),4.)), 18, 0, 0))
+    ); 
+QUIT;
+
+/*FXアフター取引の不胎化*/
+/*FXアフター取引のうちSPOT取引の抽出
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_AFTER_SPOT_LD2 
+AS 
+SELECT 取引番号, 商品, CIF, 取引先名, 約定日, 受渡日, 売買, 買通貨, 買金額, 売通貨, 売金額, 'ﾌﾞｯｸ(基軸)'n, ｱﾌﾀｰ取引, ﾃﾞｰﾀ取得元 
+FROM WORK.Q_FX_AFTER_LD2, WORK.DATE_LD2 
+WHERE 
+   ( 
+      ( DATE_LD2.TOM約定日 <= Q_FX_AFTER_LD2.約定日 ) AND 
+      ( DATE_LD2.TOM >= Q_FX_AFTER_LD2.受渡日 ) 
+   ) OR
+   ( 
+      ( DATE_LD2.基準日 <= Q_FX_AFTER_LD2.約定日 ) AND 
+      ( DATE_LD2.SPOT >= Q_FX_AFTER_LD2.受渡日 ) 
+   ) 
+; 
+QUIT;
+
+/*FXアフター取引のうちFWD取引の抽出
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_AFTER_FWD_LD2 
+AS 
+SELECT 取引番号, 商品, CIF, 取引先名, 約定日, 受渡日, 売買, 買通貨, 買金額, 売通貨, 売金額, 'ﾌﾞｯｸ(基軸)'n, ｱﾌﾀｰ取引, ﾃﾞｰﾀ取得元 
+FROM WORK.Q_FX_AFTER_LD2, WORK.DATE_LD2 
+WHERE 
+   ( DATE_LD2.'期末日'n < Q_FX_AFTER_LD2.受渡日 ) 
+   AND 
+   (
+   ( 
+      ( DATE_LD2.TOM約定日 > Q_FX_AFTER_LD2.約定日 ) AND 
+      ( DATE_LD2.TOM <= Q_FX_AFTER_LD2.受渡日 ) 
+   ) OR
+   ( 
+      ( DATE_LD2.基準日 > Q_FX_AFTER_LD2.約定日 ) AND 
+      ( DATE_LD2.SPOT <= Q_FX_AFTER_LD2.受渡日 ) 
+   ) OR
+   ( 
+      ( DATE_LD2.TOM > Q_FX_AFTER_LD2.約定日 ) AND 
+      ( DATE_LD2.SPOT < Q_FX_AFTER_LD2.受渡日 ) 
+   )
+   ) ; 
+QUIT;
+*/
+
+/*FX SPOT処理*/
+/*FX SPOTﾃﾞｰﾀとFX AFTERﾃﾞｰﾀの買取引をﾏｰｼﾞ*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_SPOT_A_LD2 
+AS 
+SELECT Q_FX_SPOT_LD2.取引番号, Q_FX_SPOT_LD2.買通貨, Q_FX_SPOT_LD2.買金額, 受渡日 
+FROM WORK.Q_FX_SPOT_LD2 
+/*アフター取引不胎化*/
+/*
+Union 
+SELECT Q_FX_AFTER_SPOT_LD2.取引番号, Q_FX_AFTER_SPOT_LD2.買通貨, Q_FX_AFTER_SPOT_LD2.買金額, 受渡日 
+FROM WORK.Q_FX_AFTER_SPOT_LD2 
+*/
+QUIT;
+
+/*FX SPOT買取引の通貨別持高の集計*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_SPOT_BL_A_LD2 
+AS 
+SELECT Q_FX_SPOT_A_LD2.買通貨 AS CCY, Sum(Q_FX_SPOT_A_LD2.買金額) AS 買金額
+FROM WORK.Q_FX_SPOT_A_LD2
+Group by Q_FX_SPOT_A_LD2.買通貨; 
+QUIT;
+
+/*FX SPOTﾃﾞｰﾀとFX AFTERﾃﾞｰﾀの売取引をﾏｰｼﾞ*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_SPOT_L_LD2 
+AS 
+SELECT Q_FX_SPOT_LD2.取引番号, Q_FX_SPOT_LD2.売通貨, Q_FX_SPOT_LD2.売金額, 受渡日 
+FROM WORK.Q_FX_SPOT_LD2 
+/*アフター取引不胎化*/
+/*
+Union
+SELECT Q_FX_AFTER_SPOT_LD2.取引番号, Q_FX_AFTER_SPOT_LD2.売通貨, Q_FX_AFTER_SPOT_LD2.売金額, 受渡日 
+FROM WORK.Q_FX_AFTER_SPOT_LD2
+*/
+QUIT;
+
+/*FX SPOT売取引の通貨別持高の集計*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_SPOT_BL_L_LD2 
+AS 
+SELECT Q_FX_SPOT_L_LD2.売通貨 AS CCY, Sum(Q_FX_SPOT_L_LD2.売金額) AS 売金額
+FROM WORK.Q_FX_SPOT_L_LD2
+Group by Q_FX_SPOT_L_LD2.売通貨; 
+QUIT;
+
+/*Q_FX_SPOTの作成：FX SPOT買取引と売取引の通貨別集計を横連結*/
+DATA WORK.Q_FX_SPOT_Balance_CCY;
+MERGE WORK.Q_FX_SPOT_BL_A_LD2 WORK.Q_FX_SPOT_BL_L_LD2;
+BY CCY;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_FX_SPOT_Balance_CCY 
+	OUTFILE = "&fld_pass\FX_SPOT_Balance_CCY.csv" 
+	DBMS = CSV 
+	REPLACE;
+RUN; 
+
+
+
+/*FX FWD処理*/
+/*FXアフター取引のうちFWD取引の抽出*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_AFTER_FWD_LD2 
+AS 
+SELECT 取引番号, 商品, CIF, 取引先名, 約定日, 受渡日, 売買, 買通貨, 買金額, 売通貨, 売金額, 'ﾌﾞｯｸ(基軸)'n, ｱﾌﾀｰ取引, ﾃﾞｰﾀ取得元 
+FROM WORK.Q_FX_AFTER_LD2, WORK.DATE_LD2 
+WHERE 
+   ( DATE_LD2.'期末日'n < Q_FX_AFTER_LD2.受渡日 ) 
+   AND 
+   (
+   ( 
+      ( DATE_LD2.TOM約定日 > Q_FX_AFTER_LD2.約定日 ) AND 
+      ( DATE_LD2.TOM <= Q_FX_AFTER_LD2.受渡日 ) 
+   ) OR
+   ( 
+      ( DATE_LD2.基準日 > Q_FX_AFTER_LD2.約定日 ) AND 
+      ( DATE_LD2.SPOT <= Q_FX_AFTER_LD2.受渡日 ) 
+   ) OR
+   ( 
+      ( DATE_LD2.TOM > Q_FX_AFTER_LD2.約定日 ) AND 
+      ( DATE_LD2.SPOT < Q_FX_AFTER_LD2.受渡日 ) 
+   )
+   ) ; 
+QUIT;
+
+/*FX FWDﾃﾞｰﾀとFX AFTERﾃﾞｰﾀの買取引をﾏｰｼﾞ*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_FWD_A_LD2 
+AS 
+SELECT Q_FX_FWD_LD2.取引番号, Q_FX_FWD_LD2.買通貨, Q_FX_FWD_LD2.買金額, 受渡日 
+FROM WORK.Q_FX_FWD_LD2 
+/*アフター取引不胎化*/
+/*
+Union 
+SELECT Q_FX_AFTER_FWD_LD2.取引番号, Q_FX_AFTER_FWD_LD2.買通貨, Q_FX_AFTER_FWD_LD2.買金額, 受渡日 
+FROM WORK.Q_FX_AFTER_FWD_LD2 
+*/
+QUIT;
+
+/*FX FWD買取引の通貨別持高の集計*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_FWD_BL_A_LD2 
+AS 
+SELECT Q_FX_FWD_A_LD2.買通貨 AS CCY, Sum(Q_FX_FWD_A_LD2.買金額) AS Asset
+FROM WORK.Q_FX_FWD_A_LD2
+Group by Q_FX_FWD_A_LD2.買通貨; 
+QUIT;
+
+/*FX FWDﾃﾞｰﾀとFX AFTERﾃﾞｰﾀの売取引をﾏｰｼﾞ*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_FWD_L_LD2 
+AS 
+SELECT Q_FX_FWD_LD2.取引番号, Q_FX_FWD_LD2.売通貨, Q_FX_FWD_LD2.売金額, 受渡日 
+FROM WORK.Q_FX_FWD_LD2 
+/*アフター取引不胎化*/
+/*
+Union
+SELECT Q_FX_AFTER_FWD_LD2.取引番号, Q_FX_AFTER_FWD_LD2.売通貨, Q_FX_AFTER_FWD_LD2.売金額, 受渡日 
+FROM WORK.Q_FX_AFTER_FWD_LD2
+*/
+QUIT;
+
+/*FX FWD売取引の通貨別持高の集計*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_FWD_BL_L_LD2 
+AS 
+SELECT Q_FX_FWD_L_LD2.売通貨 AS CCY, Sum(Q_FX_FWD_L_LD2.売金額) AS Liability
+FROM WORK.Q_FX_FWD_L_LD2
+Group by Q_FX_FWD_L_LD2.売通貨; 
+QUIT;
+
+/*Q_FX_FWDの作成：FX FWD買取引と売取引の通貨別集計を横連結*/
+DATA WORK.Q_FX_FWD_Balance_CCY;
+MERGE WORK.Q_FX_FWD_BL_A_LD2 WORK.Q_FX_FWD_BL_L_LD2;
+BY CCY;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_FX_FWD_Balance_CCY 
+	OUTFILE = "&fld_pass\FX_FWD_Balance_CCY.csv"												
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*FWDラダー*/
+/*FX Fwdラダーデータの作成：Q_FX_FwdデータとLadderデータの横連結*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_Fwd_Ladder_A_LD2
+AS
+SELECT 取引番号, 買通貨, 買金額, 受渡日, 
+case when 受渡日 <= '0.08年後'n then '1-1ヶ月' 
+     when ('0.08年後'n < 受渡日 AND 受渡日 <= '0.25年後'n) then '2-1ヶ月-3ヶ月' 
+     when ('0.25年後'n < 受渡日 AND 受渡日 <= '0.5年後'n) then '3-3ヶ月-6ヶ月' 
+     when ('0.5年後'n < 受渡日 AND 受渡日 <= '0.75年後'n) then '4-6ヶ月-9ヶ月' 
+     when ('0.75年後'n < 受渡日 AND 受渡日 <= '1年後'n) then '5-9ヶ月-1年' 
+     else '6-1年超' end AS ラダー 
+FROM Q_FX_FWD_A_LD2, WORK.LADDER;
+QUIT; 
+
+
+/*FX先渡取引の買ラダー残高*/
+PROC SQL;
+CREATE TABLE WORK.Ladder_FX_FWD_1_LD2 
+AS 
+SELECT 買通貨 AS CCY, ラダー AS Ladder, Sum(Q_FX_FWD_Ladder_A_LD2.買金額) AS 残高 
+FROM WORK.Q_FX_FWD_Ladder_A_LD2
+Group by 買通貨, ラダー
+Order by CCY, ラダー Asc; 
+QUIT;
+
+/*FX先渡買取引の通貨別ラダー表*/
+PROC TRANSPOSE DATA=WORK.Ladder_FX_FWD_1_LD2 OUT=WORK.Ladder_FX_FWD_A_LD2(DROP=_NAME_);
+BY CCY;
+VAR 残高;
+ID Ladder;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\SAS_Output)*/
+PROC EXPORT DATA = WORK.LADDER_FX_FWD_A_LD2 
+	OUTFILE = "&fld_pass\FX_FWD_Ladder_Asset.csv"												
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*FX先渡取引の売ラダー残高*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_Fwd_Ladder_L_LD2
+AS
+SELECT 取引番号, 売通貨, 売金額, 受渡日, 
+case when 受渡日 <= '0.08年後'n then '1-1ヶ月' 
+     when ('0.08年後'n < 受渡日 AND 受渡日 <= '0.25年後'n) then '2-1ヶ月-3ヶ月' 
+     when ('0.25年後'n < 受渡日 AND 受渡日 <= '0.5年後'n) then '3-3ヶ月-6ヶ月' 
+     when ('0.5年後'n < 受渡日 AND 受渡日 <= '0.75年後'n) then '4-6ヶ月-9ヶ月' 
+     when ('0.75年後'n < 受渡日 AND 受渡日 <= '1年後'n) then '5-9ヶ月-1年' 
+     else '6-1年超' end AS ラダー 
+FROM Q_FX_FWD_L_LD2, WORK.LADDER;
+QUIT; 
+
+PROC SQL;
+CREATE TABLE WORK.Ladder_FX_FWD_2_LD2
+AS 
+SELECT 売通貨 AS CCY, ラダー AS LADDER, Sum(Q_FX_FWD_Ladder_L_LD2.売金額) AS 残高 
+FROM WORK.Q_FX_FWD_Ladder_L_LD2
+Group by 売通貨, ラダー
+Order by CCY, ラダー Asc; 
+QUIT;
+
+/*FX先渡売取引の通貨別ラダー表*/
+PROC TRANSPOSE DATA=WORK.Ladder_FX_FWD_2_LD2 OUT=WORK.Ladder_FX_FWD_L_LD2(DROP=_NAME_);
+BY CCY;
+VAR 残高;
+ID Ladder;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\SAS_Output)*/
+PROC EXPORT DATA = WORK.LADDER_FX_FWD_L_LD2 
+	OUTFILE = "&fld_pass\FX_FWD_Ladder_Liability.csv" 
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*OBICデータの処理*/
+/*資産勘定残高の抽出(金融派生資産(ヘッジ)(勘定コード：1120705380)を除く)*/
+PROC SQL; 
+CREATE TABLE WORK.Q_OBIC_A 
+AS 
+SELECT 総勘定科目コード AS GL_Code, 通貨コード AS CCY_Code, 残高 AS JPY_Balance, 外貨残高 AS FCY_Balance 
+FROM WORK.OBIC
+WHERE (substrn(GL_Code, 1, 1) = '1' And GL_Code ^= '1120705380'); 
+QUIT;
+
+/*負債勘定残高の抽出(金融派生負債(勘定コード：2151206520)を除く)*/
+PROC SQL; 
+CREATE TABLE WORK.Q_OBIC_L 
+AS 
+SELECT 総勘定科目コード AS GL_Code, 通貨コード AS CCY_Code, 残高 AS JPY_Balance, 外貨残高 AS FCY_Balance 
+FROM WORK.OBIC
+WHERE (substrn(GL_Code, 1, 1) = '2' And GL_Code ^= '2151206520'); 
+QUIT;
+
+/*Q_OBICﾃﾞｰﾀから円残高を集計*/
+/*資産*/
+PROC SQL; 
+CREATE TABLE Work.Q_OBIC_A_JPY 
+AS 
+SELECT Q_OBIC_A.CCY_Code AS CCY, SUM(JPY_Balance) AS Asset 
+FROM WORK.Q_OBIC_A 
+Where CCY_Code = '*' 
+Group by CCY_Code; 
+QUIT;
+
+/*JPYラベル代替*/
+PROC SQL; 
+UPDATE Q_OBIC_A_JPY
+    set CCY='JPY';
+QUIT;
+
+/*負債*/
+PROC SQL; 
+CREATE TABLE Work.Q_OBIC_L_JPY 
+AS 
+SELECT Q_OBIC_L.CCY_Code AS CCY, SUM(JPY_Balance) AS Liability 
+FROM WORK.Q_OBIC_L 
+Where CCY_Code = '*' 
+Group by CCY_Code; 
+QUIT;
+
+/*JPYラベル代替*/
+PROC SQL; 
+UPDATE Q_OBIC_L_JPY
+    set CCY='JPY';
+QUIT;
+
+
+/*Q_OBICﾃﾞｰﾀから外貨残高を集計*/
+/*資産*/
+%Let var = Q_OBIC_A.CCY_Code AS CCY, SUM(FCY_Balance) AS Asset;
+PROC SQL; 
+CREATE TABLE Work.Q_OBIC_A_FCY 
+AS 
+SELECT &var 
+FROM WORK.Q_OBIC_A 
+Where Q_OBIC_A.CCY_Code ^= '*' 
+Group by Q_OBIC_A.CCY_Code; 
+QUIT;
+
+/*負債*/
+%Let var = Q_OBIC_L.CCY_Code AS CCY, SUM(FCY_Balance) AS Liability;
+PROC SQL; 
+CREATE TABLE Work.Q_OBIC_L_FCY 
+AS 
+SELECT &var 
+FROM WORK.Q_OBIC_L 
+Where Q_OBIC_L.CCY_Code ^= '*' 
+Group by Q_OBIC_L.CCY_Code; 
+QUIT;
+
+
+/*Q_OBICﾃﾞｰﾀの通貨別残高を集計*/
+/*資産*/
+PROC SQL; 
+CREATE TABLE WORK.Q_OBIC_A_CCY 
+AS 
+SELECT Q_OBIC_A_JPY.CCY, Q_OBIC_A_JPY.Asset
+FROM WORK.Q_OBIC_A_JPY
+Union
+SELECT Q_OBIC_A_FCY.CCY, Q_OBIC_A_FCY.Asset
+FROM WORK.Q_OBIC_A_FCY
+QUIT;
+
+/*負債*/
+PROC SQL; 
+CREATE TABLE WORK.Q_OBIC_L_CCY 
+AS 
+SELECT Q_OBIC_L_JPY.CCY, Q_OBIC_L_JPY.Liability 
+FROM WORK.Q_OBIC_L_JPY
+Union
+SELECT Q_OBIC_L_FCY.CCY, Q_OBIC_L_FCY.Liability
+FROM WORK.Q_OBIC_L_FCY
+QUIT;
+
+/*Q_OBIC_BALANCE_CCYの作成：OBICの通貨別残高を資産/負債で横連結*/
+DATA WORK.Q_OBIC_Balance_CCY;
+MERGE WORK.Q_OBIC_A_CCY WORK.Q_OBIC_L_CCY;
+BY CCY;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_OBIC_Balance_CCY 
+	OUTFILE = "&fld_pass\OBIC_Balance_CCY.csv" 
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*FXO取引の処理*/
+/*Prelude FXO(基軸)取引の抽出*/
+%Let var = 取引番号, substrn(通貨OP約定1_通貨ﾍﾟｱ, 1, 3) AS 基軸通貨, 通貨OP約定1_基軸通貨金額 AS 基軸金額, 
+case when substrn(通貨OP約定1_通貨ﾍﾟｱ, 1, 3)^='JPY' then int(通貨OP約定1_基軸通貨金額*Q_CCY_LD2.RATE) 
+    else 通貨OP約定1_基軸通貨金額 end as 基軸円貨; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_Prelude_基軸円貨 
+AS 
+SELECT &var 
+FROM WORK.FX_OPTION 
+INNER JOIN WORK.Q_CCY_LD2 
+on Q_CCY_LD2.CCY = substrn(FX_OPTION.通貨OP約定1_通貨ﾍﾟｱ, 1, 3); 
+QUIT;
+
+/*Prelude FXO(相手)取引の抽出*/
+%Let var = 取引番号, substrn(通貨OP約定1_通貨ﾍﾟｱ, 5, 3) AS 相手通貨, 通貨OP約定1_相手通貨金額 AS 相手金額, 
+case when substrn(通貨OP約定1_通貨ﾍﾟｱ, 5, 3)^='JPY' then int(通貨OP約定1_相手通貨金額*Q_CCY_LD2.RATE) 
+    else 通貨OP約定1_相手通貨金額 end as 相手円貨; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_Prelude_相手円貨
+AS 
+SELECT &var 
+FROM WORK.FX_OPTION 
+INNER JOIN WORK.Q_CCY_LD2 
+on Q_CCY_LD2.CCY = substrn(FX_OPTION.通貨OP約定1_通貨ﾍﾟｱ, 5, 3); 
+QUIT;
+
+/*Prelude FXO取引データの作成*/
+%Let var = FX_OPTION.取引番号, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 
+MDY(INPUT(substrn(通貨OP約定1_ｵﾌﾟｼｮﾝ満期日時, 6, 2), 2.),INPUT(substrn(通貨OP約定1_ｵﾌﾟｼｮﾝ満期日時, 9, 2), 2.),INPUT(substrn(通貨OP約定1_ｵﾌﾟｼｮﾝ満期日時,1 ,4),4.)) AS 満期日 format=mmddyys10., 
+ｱﾌﾀｰ取引ﾌﾗｸﾞ, ﾃﾞｰﾀ取得元区分, 'ﾌﾟﾗｲｽ(円貨)'n AS 円時価, ﾃﾞﾙﾀ, 通貨OP約定1_売買区分ｺｰﾄﾞ AS 売買ｺｰﾄﾞ, 通貨OP約定1_売買区分 AS 売買, 通貨OP約定1_ｺｰﾙﾌﾟｯﾄ区分ｺｰﾄﾞ AS ｺｰﾙﾌﾟｯﾄ区分ｺｰﾄﾞ, 通貨OP約定1_ｺｰﾙﾌﾟｯﾄ区分 AS ｺｰﾙﾌﾟｯﾄ, 
+substrn(通貨OP約定1_通貨ﾍﾟｱ, 1, 3) AS 基軸通貨, 通貨OP約定1_基軸通貨金額 AS 基軸金額, Q_FXO_Prelude_基軸円貨.基軸円貨, 通貨OP約定1_基軸通貨金額*abs(ﾃﾞﾙﾀ) AS 基軸ﾃﾞﾙﾀ, 
+substrn(通貨OP約定1_通貨ﾍﾟｱ, 5, 3) AS 相手通貨, 通貨OP約定1_相手通貨金額 AS 相手金額, Q_FXO_Prelude_相手円貨.相手円貨, 通貨OP約定1_相手通貨金額*abs(ﾃﾞﾙﾀ) AS 相手ﾃﾞﾙﾀ, 
+case when Q_FXO_Prelude_基軸円貨.基軸円貨 > Q_FXO_Prelude_相手円貨.相手円貨 then Q_FXO_Prelude_基軸円貨.基軸円貨 
+    else Q_FXO_Prelude_相手円貨.相手円貨 end as 円元本, 
+通貨OP約定1_権利行使価格 AS 行使価格, 通貨OP約定1_ﾌﾞｯｸｺｰﾄﾞ AS ﾌﾞｯｸｺｰﾄﾞ, 通貨OP約定1_ｵﾌﾟｼｮﾝｽﾃｰﾀｽ AS ｵﾌﾟｼｮﾝｽﾃｰﾀｽ, ﾃﾞｰﾀ取得元区分 AS 取得元区分; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_Prelude 
+AS 
+SELECT &var 
+FROM (WORK.FX_OPTION INNER JOIN WORK.Q_FXO_Prelude_基軸円貨 on FX_OPTION.取引番号=Q_FXO_Prelude_基軸円貨.取引番号) 
+INNER JOIN WORK.Q_FXO_Prelude_相手円貨 on Q_FXO_Prelude_基軸円貨.取引番号=Q_FXO_Prelude_相手円貨.取引番号 
+Order by 取引番号 asc; 
+QUIT;
+
+/*Q_FXO_Deltaテーブルの作成：円元本の特定*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_Delta
+AS
+SELECT 取引番号, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 満期日, 売買, ｺｰﾙﾌﾟｯﾄ,  
+case when 売買ｺｰﾄﾞ = ｺｰﾙﾌﾟｯﾄ区分ｺｰﾄﾞ then 基軸通貨 
+     else 相手通貨 end AS 買通貨, 
+case when 売買ｺｰﾄﾞ = ｺｰﾙﾌﾟｯﾄ区分ｺｰﾄﾞ then 基軸ﾃﾞﾙﾀ 
+     else 相手ﾃﾞﾙﾀ end AS 買ﾃﾞﾙﾀ, 
+case when 売買ｺｰﾄﾞ = ｺｰﾙﾌﾟｯﾄ区分ｺｰﾄﾞ then 相手通貨 
+     else 基軸通貨 end AS 売通貨, 
+case when 売買ｺｰﾄﾞ = ｺｰﾙﾌﾟｯﾄ区分ｺｰﾄﾞ then 相手ﾃﾞﾙﾀ 
+     else 基軸ﾃﾞﾙﾀ end AS 売ﾃﾞﾙﾀ, 
+case when 円時価 > 0 then 円時価 
+     else 0 end AS 正の時価, 
+円時価, 円元本, ｵﾌﾟｼｮﾝｽﾃｰﾀｽ, 取得元区分 
+FROM Q_FXO_Prelude;
+QUIT; 
+
+/*FX FXO買ﾃﾞﾙﾀの通貨別集計*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_A 
+AS 
+SELECT Q_FXO_Delta.買通貨 AS CCY, Sum(Q_FXO_Delta.買ﾃﾞﾙﾀ) AS 買ﾃﾞﾙﾀ
+FROM WORK.Q_FXO_Delta
+Group by Q_FXO_Delta.買通貨; 
+QUIT;
+
+/*FX FWO売ﾃﾞﾙﾀの通貨別集計*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_L 
+AS 
+SELECT Q_FXO_Delta.売通貨 AS CCY, Sum(Q_FXO_Delta.売ﾃﾞﾙﾀ) AS 売ﾃﾞﾙﾀ
+FROM WORK.Q_FXO_Delta
+Group by Q_FXO_Delta.売通貨; 
+QUIT;
+
+/*FX_FWOの通貨別ﾊﾞﾗﾝｽの作成：FX FWO買ﾃﾞﾙﾀと売ﾃﾞﾙﾀの通貨別集計を横連結*/
+DATA WORK.Q_FXO_Balance_CCY;
+MERGE WORK.Q_FXO_A WORK.Q_FXO_L;
+BY CCY;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_FXO_Balance_CCY 
+	OUTFILE = "&fld_pass\FXO_Balance_CCY.csv" 
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*FWOラダーの作成*/
+/*PDのFXOラダーデータ作成：Q_FXO_DeltaデータとLadderデータの横連結*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_Ladder_A
+AS
+SELECT 取引番号, 買通貨, 買ﾃﾞﾙﾀ, 満期日, 
+case when 満期日 <= '0.08年後'n then '1-1ヶ月' 
+     when ('0.08年後'n < 満期日 AND 満期日 <= '0.25年後'n) then '2-1ヶ月-3ヶ月' 
+     when ('0.25年後'n < 満期日 AND 満期日 <= '0.5年後'n) then '3-3ヶ月-6ヶ月' 
+     when ('0.5年後'n < 満期日 AND 満期日 <= '0.75年後'n) then '4-6ヶ月-9ヶ月' 
+     when ('0.75年後'n < 満期日 AND 満期日 <= '1年後'n) then '5-9ヶ月-1年' 
+     else '6-1年超' end AS ラダー 
+FROM WORK.Q_FXO_Delta, WORK.LADDER;
+QUIT; 
+
+/*FXO取引の買デルタラダー残高*/
+PROC SQL;
+CREATE TABLE WORK.Ladder_FXO_A 
+AS 
+SELECT 買通貨 AS CCY, ラダー AS Ladder, Sum(Q_FXO_Ladder_A.買ﾃﾞﾙﾀ) AS 買ﾃﾞﾙﾀ 
+FROM WORK.Q_FXO_Ladder_A
+Group by 買通貨, ラダー
+Order by CCY, ラダー Asc; 
+QUIT;
+
+/*FXO買デルタ取引の通貨別ラダー表*/
+PROC TRANSPOSE DATA=WORK.Ladder_FXO_A OUT=WORK.FXO_Ladder_A_CCY(DROP=_NAME_);
+BY CCY;
+VAR 買ﾃﾞﾙﾀ;
+ID Ladder;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\SAS_Output)*/
+PROC EXPORT DATA = WORK.FXO_Ladder_A_CCY 
+	OUTFILE = "&fld_pass\FXO_Ladder_Asset_CCY.csv" 
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*FXO取引の売デルタラダー残高*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_Ladder_L
+AS
+SELECT 取引番号, 売通貨, 売ﾃﾞﾙﾀ, 満期日, 
+case when 満期日 <= '0.08年後'n then '1-1ヶ月' 
+     when ('0.08年後'n < 満期日 AND 満期日 <= '0.25年後'n) then '2-1ヶ月-3ヶ月' 
+     when ('0.25年後'n < 満期日 AND 満期日 <= '0.5年後'n) then '3-3ヶ月-6ヶ月' 
+     when ('0.5年後'n < 満期日 AND 満期日 <= '0.75年後'n) then '4-6ヶ月-9ヶ月' 
+     when ('0.75年後'n < 満期日 AND 満期日 <= '1年後'n) then '5-9ヶ月-1年' 
+     else '6-1年超' end AS ラダー 
+FROM WORK.Q_FXO_Delta, WORK.LADDER;
+QUIT; 
+
+PROC SQL;
+CREATE TABLE WORK.Ladder_FXO_L 
+AS 
+SELECT 売通貨 AS CCY, ラダー AS LADDER, Sum(Q_FXO_Ladder_L.売ﾃﾞﾙﾀ) AS 売ﾃﾞﾙﾀ 
+FROM WORK.Q_FXO_Ladder_L
+Group by 売通貨, ラダー
+Order by CCY, ラダー Asc; 
+QUIT;
+
+/*FX先渡売取引の通貨別ラダー表*/
+PROC TRANSPOSE DATA=WORK.Ladder_FXO_L OUT=WORK.FXO_Ladder_L_CCY(DROP=_NAME_);
+BY CCY;
+VAR 売ﾃﾞﾙﾀ;
+ID Ladder;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\SAS_Output)*/
+PROC EXPORT DATA = WORK.FXO_Ladder_L_CCY 
+	OUTFILE = "&fld_pass\FXO_Ladder_Liability_CCY.csv" 
+	DBMS = CSV 
+	REPLACE;
+RUN; 
+
