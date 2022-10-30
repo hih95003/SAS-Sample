@@ -1,0 +1,1402 @@
+options validmemname=extend validvarname=any;
+
+/*ディレクトリー名の設定*/
+%let dir_name = \\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\;
+%let fld_in = SAS_Output\;
+%let fld_pass = &dir_name.&fld_in;
+/*G:\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output*/
+
+%let dir_prelude = \\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\;
+%let fld_prelude = Data from Prelude\;
+%let pass_prelude = &dir_prelude.&fld_prelude;
+
+%let fld_IT = Data from IT\;
+%let pass_IT = &dir_prelude.&fld_IT;
+
+/*月末日の設定*/
+%let BaseDate = 20200930;
+%let EndDate = 20200930;
+%let BaseMonth = 202009;
+
+/*設定値の出力*/
+%put &fld_pass;		
+%put &fld_prelude;		
+%put &fld_IT;		
+
+
+/*参照先ディレクトリ設定*/
+%put &dir_name.Credit_Exposure_Derivative.xlsx;
+
+/*公示仲値*/
+filename Data1 '\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\Data from Prelude\FX_MID_20200930.csv';
+%put &pass_prelude.FX_MID_&BaseDate..csv;
+filename Data2 '\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\18_市場リスク関連報告\Data\Data from Prelude\FX_MID_JPY.csv';
+%put &pass_prelude.FX_MID_JPY.csv;
+
+/*元データ*/
+%put &pass_prelude.Prelude_値洗結果一覧_&BaseDate..xlsx;
+%put &pass_prelude.Prelude_銘柄属性_&BaseDate..xlsx;
+%put &pass_prelude.Prelude_銘柄残高_&BaseDate..xlsx;
+%put &pass_IT.MTM_Revaluation_&BaseDate..xlsx;
+
+
+/*データのインポート*/
+/*期日データの取込み*/
+PROC IMPORT DATAFILE="&dir_name.Credit_Exposure_Derivative.xlsx"
+	OUT=WORK.Date
+	DBMS=XLSX
+	REPLACE;
+	Sheet="Date";
+RUN;
+
+/*ラダーデータの取込み*/
+PROC IMPORT DATAFILE="&dir_name.Credit_Exposure_Derivative.xlsx"
+	OUT=WORK.Ladder
+	DBMS=XLSX
+	REPLACE;
+	Sheet="Ladder";
+RUN;
+
+/*為替仲値の取込み*/
+PROC IMPORT DATAFILE=Data1
+	Out=Work.CCY
+	DBMS=CSV
+	Replace;
+RUN;
+
+/*JPYレートの取込み*/
+PROC IMPORT DATAFILE=Data2
+	Out=Work.CCY_JPY
+	DBMS=CSV
+	Replace;
+RUN;
+
+/*元データの取込み*/
+/*為替*/
+PROC IMPORT DATAFILE="&pass_prelude.Prelude_値洗結果一覧_&BaseDate..xlsx"
+	OUT=WORK.FX
+	DBMS=XLSX
+	REPLACE;
+	Sheet="約定_為替";
+RUN;
+
+/*金利ｽﾜｯﾌﾟ*/
+PROC IMPORT DATAFILE="&pass_prelude.Prelude_値洗結果一覧_&BaseDate..xlsx"
+	OUT=WORK.IRS
+	DBMS=XLSX
+	REPLACE;
+	Sheet="約定_金利ｽﾜｯﾌﾟ";
+RUN;
+
+/*為替ｵﾌﾟｼｮﾝ*/
+PROC IMPORT DATAFILE="&pass_prelude.Prelude_値洗結果一覧_&BaseDate..xlsx"
+	OUT=WORK.FX_OPTION
+	DBMS=XLSX
+	REPLACE;
+	Sheet="約定_通貨ｵﾌﾟｼｮﾝ";
+RUN;
+
+/*銘柄属性*/
+PROC IMPORT DATAFILE="&pass_prelude.Prelude_銘柄属性_&BaseDate..xlsx"
+	OUT=WORK.SP_TYPE
+	DBMS=XLSX
+	REPLACE;
+	Sheet="仕組商品";
+RUN;
+
+/*銘柄残高*/
+PROC IMPORT DATAFILE="&pass_prelude.Prelude_銘柄残高_&BaseDate..xlsx"
+	OUT=WORK.SP_BAL
+	DBMS=XLSX
+	REPLACE;
+	Sheet="外国債券";
+RUN;
+
+/*単体仕組商品*/
+PROC IMPORT DATAFILE="&pass_IT.MTM_Revaluation_&BaseDate..xlsx"
+	OUT=WORK.MTM_REVALUE
+	DBMS=XLSX
+	REPLACE;
+	Sheet="MTM_Revaluation";
+RUN;
+
+/*連結仕組商品*/
+PROC IMPORT DATAFILE="&pass_IT.MTM_Revaluation_&BaseDate..xlsx"
+	OUT=WORK.MTM_CONSOLI
+	DBMS=XLSX
+	REPLACE;
+	Sheet="MTM_Consoli";
+RUN;
+
+
+/*評価ﾚｰﾄ表*/
+PROC SQL; 
+CREATE TABLE Work.Q_CCY 
+AS 
+SELECT substrn(ccy_pair, 1, 3) AS CCY, fx_mid_rate AS Rate FROM WORK.CCY
+union
+SELECT ccy_pair AS CCY, fx_mid_rate AS Rate FROM WORK.CCY_JPY
+QUIT;
+
+/*FX取引*/
+/*FX取引の抽出(シティ当日決済取引とｼｽﾃﾑ自動生成取引を除く)*/
+%let var = 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 
+MDY(INPUT(substrn(約定日時,6 ,2),2.),INPUT(substrn(約定日時,9 ,2),2.),INPUT(substrn(約定日時,1 ,4),4.)) as 約定日時 format=mmddyys10., 
+MDY(INPUT(substrn(為替約定1_受渡日_期間開始,6 ,2),2.),INPUT(substrn(為替約定1_受渡日_期間開始,9 ,2),2.),INPUT(substrn(為替約定1_受渡日_期間開始,1 ,4),4.)) as 受渡日 format=mmddyy10., 
+為替約定1_売買区分ｺｰﾄﾞ AS 売買コード, 為替約定1_売買区分 AS 売買, substrn(為替約定1_通貨ﾍﾟｱ, 1 ,3) AS 基軸通貨, 為替約定1_基軸通貨金額 AS 基軸金額, 
+substrn(為替約定1_通貨ﾍﾟｱ, 5, 3) AS 相手通貨, 為替約定1_相手通貨金額 AS 相手金額, 為替約定1_約定ﾚｰﾄ AS 約定レート, 
+'時価(円貨)'n AS 円時価, ﾃﾞｰﾀ取得元区分 AS 取得元区分;
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FX 
+AS 
+SELECT &var
+FROM WORK.FX 
+Where 取引先ｺｰﾄﾞ^=2089 And 取引先ｺｰﾄﾞ^=-1;
+QUIT;
+
+/*FX_ｱｳﾄﾗｲﾄ取引の抽出*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_OUTRIGHT 
+AS 
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 取得元区分, 円時価, 
+DATE.基準日 AS 基準日 format=mmddyys10., 
+DATE.期末日 AS 期末日 format=mmddyys10.,
+DATE.'SPOT'n AS SPOT format=mmddyys10., 
+DATE.'TOM'n AS TOM format=mmddyys10.,
+DATE.'TOM約定日'n AS TOM約定日 format=mmddyys10. 
+FROM WORK.Q_FX, WORK.DATE 
+WHERE 
+   ( 
+      ( Q_FX.'商品ｺｰﾄﾞ'n = 202 ) AND 
+      ( DATE.'期末日'n < Q_FX.'受渡日'n ) 
+   ) /*AND 
+   (
+   ( 
+      ( DATE.'TOM約定日'n > Q_FX.'約定日時'n ) AND 
+      ( DATE.'TOM'n <= Q_FX.'受渡日'n ) 
+   ) OR
+   ( 
+      ( DATE.'基準日'n > Q_FX.'約定日時'n ) AND 
+      ( DATE.'SPOT'n <= Q_FX.'受渡日'n ) 
+   ) OR
+   ( 
+      ( DATE.'基準日'n > Q_FX.'約定日時'n ) AND 
+      ( DATE.'SPOT'n < Q_FX.'受渡日'n ) 
+   ) 
+   )*/ 
+; 
+QUIT;
+
+/*FX SWAPテーブルの作成：SWAP取引の抽出*/
+%let var = 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分, 
+DATE.基準日 AS 基準日 format=mmddyys10., 
+DATE.期末日 AS 期末日 format=mmddyys10.,
+DATE.'SPOT'n AS SPOT format=mmddyys10., 
+DATE.'TOM'n AS TOM format=mmddyys10.,
+DATE.'TOM約定日'n AS TOM約定日 format=mmddyys10. ; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_SWAP_1 
+AS 
+SELECT &var.
+FROM WORK.Q_FX Q_FX, WORK.DATE 
+WHERE Q_FX.'商品ｺｰﾄﾞ'n = 204;  
+Quit;
+
+/*FX_Swap_2テーブルの作成：取引の期先取引への損益の付け替え*/
+data Q_FX_SWAP_2;
+ if _n_ = 1 then do;
+   declare hash hx();
+    hx.defineKey('取引番号','NO');
+    hx.definedata('_円時価');
+    hx.definedone();
+  do while (^FL);
+   set Q_FX_SWAP_1 end=FL;
+   by 取引番号;
+   if first.取引番号 then NO=0;
+   NO+1;
+   _円時価=円時価;
+   hx.add();
+  end; 
+ end;
+   set Q_FX_SWAP_1;
+   by 取引番号;
+   if first.取引番号 then RNO=0;
+   RNO+1;
+   /*同ID内の一つ前のデータを参照*/
+   NO=RNO-1;
+   rc=hx.find();
+   円時価_m1=ifn(rc=0,_円時価,.);
+ keep 取引番号 受渡日 円時価_m1;
+run;
+
+/*FX_SWAP_3テーブルの作成：FX_Swap_1データと_2データのマージ*/
+DATA WORK.Q_FX_SWAP_3;
+MERGE WORK.Q_FX_SWAP_1(drop=円時価) WORK.Q_FX_SWAP_2(RENAME=(円時価_m1=円時価));
+BY 取引番号 受渡日;
+RUN;
+
+/*FX Swapデータの作成：決済済み取引の削除*/
+%let var = 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分, 基準日, 期末日, SPOT, TOM, TOM約定日 ; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_SWAP 
+AS 
+SELECT &var.
+FROM WORK.Q_FX_SWAP_3 
+WHERE 
+   ( 
+      ( 商品ｺｰﾄﾞ = 204 ) AND 
+      ( 期末日 < 受渡日 ) 
+   ) /*AND 
+   (
+   ( 
+      ( TOM約定日 > 約定日時 ) AND 
+      ( TOM <= 受渡日 ) 
+   ) OR
+   ( 
+      ( 基準日 >= 約定日時 ) AND 
+      ( SPOT <= 受渡日 ) 
+   ) OR
+   ( 
+      ( TOM > 約定日時 ) AND 
+      ( SPOT < 受渡日 ) 
+   ) 
+   )*/  
+; 
+QUIT;
+
+/*Q_FX_Allテーブルの作成：Q_FX_OUTRIGHTとQ_FX_SWAPテーブルのマージ*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_All
+AS
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分 
+FROM Q_FX_OUTRIGHT 
+UNION
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分 
+FROM Q_FX_SWAP 
+QUIT; 
+
+/*FWD取引*/
+/*FX_FWDテーブルの作成：FX_ALLからFWD取引の抽出*/
+%let var = 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 相手通貨, 相手金額, 約定レート, 
+円時価, 取得元区分, 基準日, 期末日, SPOT, TOM, TOM約定日 ; 
+
+PROC SQL; 
+CREATE TABLE WORK.FX_FWD 
+AS 
+SELECT &var.
+FROM WORK.Q_FX_All, WORK.DATE 
+WHERE 
+   ( 
+      ( TOM約定日 >= 約定日時 ) AND 
+      ( TOM < 受渡日 ) 
+   ) OR
+   ( 
+      ( TOM約定日 > 約定日時 ) AND 
+      ( TOM <= 受渡日 ) 
+   ) OR
+   ( 
+      ( 基準日 >= 約定日時 ) AND 
+      ( SPOT < 受渡日 ) 
+   ) OR
+   ( 
+      ( 基準日 > 約定日時 ) AND 
+      ( SPOT <= 受渡日 ) 
+   ) 
+; 
+QUIT;
+
+/*FWD_基軸テーブルの作成：FWDの円元本と正の時価の抽出*/
+/*FX_FWD_基軸テーブルの作成*/
+PROC SQL; 
+CREATE TABLE WORK.FX_FWD_基軸
+AS
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 基軸通貨, 基軸金額, 
+int(基軸金額*Q_CCY.RATE) As 基軸円貨 
+FROM FX_FWD inner join Q_CCY
+on FX_FWD.基軸通貨 = Q_CCY.CCY; 
+QUIT; 
+
+/*FX_FWD_相手テーブルの作成*/
+PROC SQL; 
+CREATE TABLE WORK.FX_FWD_相手
+AS
+SELECT 取引番号, 相手通貨, 相手金額, 
+int(相手金額*Q_CCY.RATE) AS 相手円貨, 
+case when 円時価 >= 0 then 円時価 
+     else 0 end AS 正の時価, 
+円時価, 取得元区分 
+FROM FX_FWD inner join Q_CCY
+on FX_FWD.相手通貨 = Q_CCY.CCY; 
+QUIT; 
+
+/*FX_FWD_1テーブルの作成：FX_FWD_基軸データとFX_FWD_相手データの横連結*/
+DATA WORK.FX_FWD_1;
+MERGE WORK.FX_FWD_基軸 WORK.FX_FWD_相手;
+BY 取引番号;
+RUN;
+
+/*FX_Fwdテーブルの作成：円元本の特定*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_FWD
+AS
+SELECT 取引番号, 商品ｺｰﾄﾞ, 商品, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 売買コード, 売買, 
+case when 売買コード = 0 then 基軸通貨 
+     else 相手通貨 end AS 買通貨, 
+case when 売買コード = 0 then 基軸金額 
+     else 相手金額 end AS 買金額, 
+case when 売買コード = 0 then 相手通貨 
+     else 基軸通貨 end AS 売通貨, 
+case when 売買コード = 0 then 相手金額 
+     else 基軸金額 end AS 売金額, 
+case when 基軸円貨 > 相手円貨 then 基軸円貨 
+    else 相手円貨 end AS 円元本, 
+正の時価, 円時価, 取得元区分 
+FROM FX_FWD_1;
+QUIT; 
+
+/*FX Fwd元本ラダー*/
+/*FX Fwd元本ラダーデータの作成：Q_FX_FwdデータとLadderデータの横連結*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_FWD_LADDER 
+AS 
+SELECT 取引番号, CIF, 取引先ｺｰﾄﾞ, 取引先名, 円元本, 正の時価, 受渡日,  
+case when 受渡日 <= '1年後'n then '1-1年' 
+     when ('1年後'n < 受渡日 AND 受渡日 <= '3年後'n) then '2-1年-3年' 
+     when ('3年後'n < 受渡日 AND 受渡日 <= '5年後'n) then '3-3年-5年' 
+     when ('5年後'n < 受渡日 AND 受渡日 <= '7年後'n) then '4-5年-7年' 
+     when ('7年後'n < 受渡日 AND 受渡日 <= '10年後'n) then '5-7年-10年' 
+     else '6-10年超' end AS ラダー 
+FROM WORK.Q_FX_FWD, WORK.LADDER;
+QUIT; 
+
+/*FX先渡取引の円元本ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_FX_FWD_LADDER_PRIN_1 
+AS 
+SELECT CIF, ラダー AS Ladder, Sum(Q_FX_FWD_LADDER.円元本) AS 円元本 
+FROM WORK.Q_FX_FWD_LADDER 
+Group by CIF, ラダー 
+Order by CIF, ラダー Asc; 
+QUIT;
+
+/*FX先渡取引の取引相手先別円元本ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_FX_FWD_LADDER_PRIN_1 OUT=WORK.Q_FX_FWD_LADDER_PRIN_2(DROP=_NAME_);
+BY CIF;
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*Q_FX_Fwd_CPTY作成：取引先リストの作成*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FX_FWD_CPTY 
+AS 
+SELECT distinct CIF, 取引先ｺｰﾄﾞ, 取引先名  
+FROM WORK.Q_FX_FWD_LADDER;
+QUIT; 
+
+/*Q_FX_FWD_LADDER_PRINの作成：顧客番号と円元本ラダー表の横連結*/
+DATA WORK.Q_FX_FWD_LADDER_PRIN;
+MERGE WORK.Q_FX_FWD_CPTY WORK.Q_FX_FWD_LADDER_PRIN_2;
+BY CIF;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_FX_FWD_LADDER_PRIN 
+	OUTFILE = "&fld_pass\Q_FX_FWD_LADDER_PRIN.csv"
+	DBMS = CSV 
+	REPLACE; 
+RUN;
+
+/*FX先渡取引の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_FX_FWD_LADDER_PROF_1 
+AS 
+SELECT CIF, ラダー AS Ladder, Sum(Q_FX_FWD_LADDER.正の時価) AS 正の時価 
+FROM WORK.Q_FX_FWD_LADDER 
+Group by CIF, ラダー 
+Order by CIF, ラダー Asc; 
+QUIT;
+
+/*FX先渡取引の取引相手先別正の時価ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_FX_FWD_LADDER_PROF_1 OUT=WORK.Q_FX_FWD_LADDER_PROF_2(DROP=_NAME_);
+BY CIF;
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*Q_FX_FWD_LADDER_PRINの作成：顧客番号と正の時価ラダー表の横連結*/
+DATA WORK.Q_FX_FWD_LADDER_PROF;
+MERGE WORK.Q_FX_FWD_CPTY WORK.Q_FX_FWD_LADDER_PROF_2;
+BY CIF;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_FX_FWD_LADDER_PROF 
+	OUTFILE = "&fld_pass\Q_FX_FWD_LADDER_PROF.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*IRS取引*/
+/*IRS取引の抽出*/
+%let var = 取引番号, CIF, 取引先ｺｰﾄﾞ, 取引先名, 
+MDY(INPUT(substrn(約定日時,6 ,2),2.),INPUT(substrn(約定日時,9 ,2),2.),INPUT(substrn(約定日時,1 ,4),4.)) as 約定日時 format=mmddyys10., 
+MDY(INPUT(substrn(受取_ｽﾀｰﾄ日,6 ,2),2.),INPUT(substrn(受取_ｽﾀｰﾄ日,9 ,2),2.),INPUT(substrn(受取_ｽﾀｰﾄ日, 1, 4), 4.)) as ｽﾀｰﾄ日 format=mmddyy10., 
+MDY(INPUT(substrn(受取_ｴﾝﾄﾞ日,6 ,2),2.),INPUT(substrn(受取_ｴﾝﾄﾞ日,9 ,2),2.),INPUT(substrn(受取_ｴﾝﾄﾞ日, 1, 4), 4.)) as 受渡日 format=mmddyy10., 
+受取_通貨, 受取_想定元本, 支払_通貨, 支払_想定元本, 'NPV(円貨)'n as 円時価, '経過利息(円貨)'n as 円経過利息, 商品ｺｰﾄﾞ;
+
+PROC SQL; 
+CREATE TABLE WORK.Q_IRS 
+AS 
+SELECT &var
+FROM WORK.IRS 
+WHERE 商品ｺｰﾄﾞ = 1201; 
+QUIT;
+
+/*IRSテーブルの作成：IRSの円元本と正の時価の抽出*/
+PROC SQL; 
+CREATE TABLE WORK.Q_IRS_1 
+AS
+SELECT 取引番号, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 受渡日, 受取_通貨 AS 原通貨, 
+int(受取_想定元本*Q_CCY.RATE) as 円元本, 
+case when (円時価-円経過利息) <= 0 then 0 
+     else (円時価-円経過利息) 
+     end AS 正の時価 
+FROM Q_IRS inner join Q_CCY
+on Q_IRS.受取_通貨 = Q_CCY.CCY; 
+QUIT; 
+
+/*IRS取引のラダー残高*/
+PROC SQL; 
+CREATE TABLE WORK.Q_IRS_LADDER 
+AS
+SELECT 取引番号, CIF, 取引先ｺｰﾄﾞ, 取引先名, 受渡日, 原通貨, 円元本, 正の時価, 
+case when 受渡日 <= '1年後'n then '1-1年' 
+     when ('1年後'n < 受渡日 AND 受渡日 <= '3年後'n) then '2-1年-3年' 
+     when ('3年後'n < 受渡日 AND 受渡日 <= '5年後'n) then '3-3年-5年' 
+     when ('5年後'n < 受渡日 AND 受渡日 <= '7年後'n) then '4-5年-7年' 
+     when ('7年後'n < 受渡日 AND 受渡日 <= '10年後'n) then '5-7年-10年' 
+     else '6-10年超' end AS ラダー 
+FROM Q_IRS_1, WORK.LADDER;
+QUIT; 
+
+/*IRS取引の円元本ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_IRS_LADDER_PRIN_1 
+AS 
+SELECT CIF, ラダー AS LADDER, Sum(Q_IRS_LADDER.円元本) AS 円元本 
+FROM WORK.Q_IRS_LADDER 
+Group by CIF, ラダー 
+Order by CIF, ラダー Asc; 
+QUIT;
+
+/*IRS取引の取引相手先別円元本ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_IRS_LADDER_PRIN_1 OUT=WORK.Q_IRS_LADDER_PRIN_2(DROP=_NAME_);
+BY CIF;
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*Q_IRS_CPTY作成：取引先リストの作成*/
+PROC SQL; 
+CREATE TABLE WORK.Q_IRS_CPTY 
+AS 
+SELECT distinct CIF, 取引先ｺｰﾄﾞ, 取引先名  
+FROM WORK.Q_IRS_LADDER;
+QUIT; 
+
+/*Q_IRS_LADDER_PRINの作成：顧客番号と円元本ラダー表の横連結*/
+DATA WORK.Q_IRS_LADDER_PRIN;
+MERGE WORK.Q_IRS_CPTY WORK.Q_IRS_LADDER_PRIN_2;
+BY CIF;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_IRS_LADDER_PRIN 
+	OUTFILE = "&fld_pass\Q_IRS_LADDER_PRIN.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*IRS取引の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_IRS_LADDER_PROF_1 
+AS 
+SELECT CIF, ラダー AS LADDER, Sum(Q_IRS_LADDER.正の時価) AS 正の時価 
+FROM WORK.Q_IRS_LADDER 
+Group by CIF, ラダー 
+Order by CIF, ラダー Asc; 
+QUIT;
+
+/*IRS取引の取引相手先別正の時価ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_IRS_LADDER_PROF_1 OUT=WORK.Q_IRS_LADDER_PROF_2(DROP=_NAME_);
+BY CIF;
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*Q_IRS_LADDER_PROFの作成：顧客番号と正の時価ラダー表の横連結*/
+DATA WORK.Q_IRS_LADDER_PROF;
+MERGE WORK.Q_IRS_CPTY WORK.Q_IRS_LADDER_PROF_2;
+BY CIF;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_IRS_LADDER_PROF 
+	OUTFILE = "&fld_pass\Q_IRS_LADDER_PROF.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*単体仕組預金(与信先)*/
+/*単体仕組預金の抽出*/
+%let var = TheirRef, Source, ContractDate, ValueDate, MaturityDate, FinalMaturityDate, MTM, Ccy, PrincipalAmt, ProfitLoss, PrincipalAmtJpy, ProfitLossJPY;
+
+PROC SQL; 
+CREATE TABLE WORK.Q_MTM_Revalue 
+AS 
+SELECT &var
+FROM WORK.MTM_REVALUE
+WHERE TheirRef Not Like 'XS%' And Source Not In ('HSBC Tokyo', 'JPMC Tokyo', '*Unmatched');
+QUIT;
+
+
+/*MTM_REVALUEテーブルの作成：単体仕組預金の円元本と正の時価の抽出*/
+PROC SQL; 
+CREATE TABLE WORK.Q_MTM_REVALUE_1 
+AS
+SELECT TheirRef, 
+SP_TYPE.発行体 as 発行体, 
+case when FinalMaturityDate is Null then MaturityDate 
+     else FinalMaturityDate 
+     end AS Maturity format=mmddyys10., 
+MTM, Ccy, PrincipalAmtJpy as 円元本, 
+case when ProfitLossJPY <= 0 then 0 
+     else ProfitLossJPY 
+     end AS 正の時価, 
+case when ProfitLossJPY >= 0 then 0 
+     else -ProfitLossJPY 
+     end AS 正の時価対顧 
+FROM Q_MTM_REVALUE left join SP_TYPE 
+on 
+/*MTM_RevaluationファイルのSource(発行体名)がSG ParisとSG PARISの差異対応*/
+case when substr(Q_MTM_REVALUE.TheirRef, 1, 8) ^= 'SG PARIS' then Q_MTM_REVALUE.TheirRef = SP_TYPE.ISINｺｰﾄﾞ 
+     else substr(Q_MTM_REVALUE.TheirRef, 10, 3) = substr(SP_TYPE.ISINｺｰﾄﾞ, 10, 3)
+     end; 
+QUIT; 
+
+
+/*単体仕組預金のラダー残高*/
+PROC SQL; 
+CREATE TABLE WORK.Q_MTM_REVALUE_LADDER 
+AS
+SELECT TheirRef, 発行体, 円元本, 正の時価, 正の時価対顧, Maturity, 
+case when Maturity <= '1年後'n then '1-1年' 
+     when ('1年後'n < Maturity AND Maturity <= '3年後'n) then '2-1年-3年' 
+     when ('3年後'n < Maturity AND Maturity <= '5年後'n) then '3-3年-5年' 
+     when ('5年後'n < Maturity AND Maturity <= '7年後'n) then '4-5年-7年' 
+     when ('7年後'n < Maturity AND Maturity <= '10年後'n) then '5-7年-10年' 
+     else '6-10年超' end AS ラダー 
+FROM Q_MTM_REVALUE_1, WORK.LADDER
+Order by ラダー Asc;
+QUIT; 
+
+
+/*単体仕組預金の円元本ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_MTM_REVALUE_LADDER_PRIN_1 
+AS 
+SELECT 発行体, ラダー AS LADDER, Sum(Q_MTM_REVALUE_LADDER.円元本) AS 円元本 
+FROM WORK.Q_MTM_REVALUE_LADDER 
+Group by 発行体, ラダー 
+Order by 発行体, ラダー Asc; 
+QUIT;
+
+
+/*単体仕組預金の円元本ラダー表(発行体別)*/
+PROC TRANSPOSE DATA=WORK.Q_MTM_REVALUE_LADDER_PRIN_1 OUT=WORK.Q_MTM_REVALUE_LADDER_PRIN(DROP=_NAME_);
+BY 発行体;
+VAR 円元本;
+ID LADDER;
+RUN;
+
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_MTM_REVALUE_LADDER_PRIN 
+	OUTFILE = "&fld_pass\Q_MTM_REVALUE_LADDER_PRIN.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*単体仕組預金の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_MTM_REVALUE_LADDER_PROF_1 
+AS 
+SELECT 発行体, ラダー AS LADDER, Sum(Q_MTM_REVALUE_LADDER.正の時価) AS 正の時価 
+FROM WORK.Q_MTM_REVALUE_LADDER 
+Group by 発行体, ラダー 
+Order by 発行体, ラダー Asc; 
+QUIT;
+
+
+/*単体仕組預金の正の時価ラダー表(発行体別)*/
+PROC TRANSPOSE DATA=WORK.Q_MTM_REVALUE_LADDER_PROF_1 OUT=WORK.Q_MTM_REVALUE_LADDER_PROF(DROP=_NAME_);
+BY 発行体;
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_MTM_REVALUE_LADDER_PROF 
+	OUTFILE = "&fld_pass\Q_MTM_REVALUE_LADDER_PROF.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*単体仕組預金(対顧)*/
+/*単体仕組預金の円元本ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_MTM_REVALUE_LADDER_PRIN_対顧1 
+AS 
+SELECT ラダー AS LADDER, Sum(Q_MTM_REVALUE_LADDER.円元本) AS 円元本 
+FROM WORK.Q_MTM_REVALUE_LADDER 
+Group by ラダー 
+Order by ラダー Asc; 
+QUIT;
+
+/*単体仕組預金の円元本ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_MTM_REVALUE_LADDER_PRIN_対顧1 OUT=WORK.Q_MTM_REVALUE_LADDER_PRIN_対顧(DROP=_NAME_);
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_MTM_REVALUE_LADDER_PRIN_対顧 
+	OUTFILE = "&fld_pass\Q_MTM_REVALUE_LADDER_PRIN_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*単体仕組預金の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_MTM_REVALUE_LADDER_PROF_対顧1 
+AS 
+SELECT ラダー AS LADDER, Sum(Q_MTM_REVALUE_LADDER.正の時価対顧) AS 正の時価 
+FROM WORK.Q_MTM_REVALUE_LADDER 
+Group by ラダー 
+Order by ラダー Asc; 
+QUIT;
+
+/*単体仕組預金の正の時価ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_MTM_REVALUE_LADDER_PROF_対顧1 OUT=WORK.Q_MTM_REVALUE_LADDER_PROF_対顧(DROP=_NAME_);
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_MTM_REVALUE_LADDER_PROF_対顧 
+	OUTFILE = "&fld_pass\Q_MTM_REVALUE_LADDER_PROF_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+
+/*連結仕組預金(与信先)*/
+/*連結仕組預金の抽出*/
+%let var = TheirRef, Source, ContractDate, ValueDate, MaturityDate, FinalMaturityDate, MTM, Ccy, PrincipalAmt, ProfitLoss, PrincipalAmtJpy, ProfitLossJPY;
+
+PROC SQL; 
+CREATE TABLE WORK.Q_MTM_CONSOLI 
+AS 
+SELECT &var
+FROM WORK.MTM_Consoli 
+WHERE TheirRef Not Like 'XS%' And Source Not In ('HSBC Tokyo', 'JPMC Tokyo', '*Unmatched');
+QUIT;
+
+/*MTM_CONSOLIテーブルの作成：連結仕組預金の円元本と正の時価の抽出*/
+PROC SQL; 
+CREATE TABLE WORK.Q_MTM_CONSOLI_1 
+AS
+SELECT TheirRef, 
+SP_TYPE.発行体 as 発行体, 
+case when FinalMaturityDate is Null then MaturityDate 
+     else FinalMaturityDate 
+     end AS Maturity format=mmddyys10., 
+MTM, Ccy, PrincipalAmtJpy as 円元本, 
+case when ProfitLossJPY <= 0 then 0 
+     else ProfitLossJPY 
+     end AS 正の時価, 
+case when ProfitLossJPY >= 0 then 0 
+     else -ProfitLossJPY 
+     end AS 正の時価対顧 
+FROM Q_MTM_CONSOLI left join SP_TYPE 
+on 
+/*MTM_RevaluationファイルのSource(発行体名)がSG ParisとSG PARISの差異対応*/
+case when substr(Q_MTM_CONSOLI.TheirRef, 1, 8) ^= 'SG PARIS' then Q_MTM_CONSOLI.TheirRef = SP_TYPE.ISINｺｰﾄﾞ 
+     else substr(Q_MTM_CONSOLI.TheirRef, 10, 3) = substr(SP_TYPE.ISINｺｰﾄﾞ, 10, 3)
+     end; 
+QUIT; 
+
+/*連結仕組預金のラダー残高*/
+PROC SQL; 
+CREATE TABLE WORK.Q_MTM_CONSOLI_LADDER 
+AS
+SELECT TheirRef, 発行体, 円元本, 正の時価, 正の時価対顧, Maturity, 
+case when Maturity <= '1年後'n then '1-1年' 
+     when ('1年後'n < Maturity AND Maturity <= '3年後'n) then '2-1年-3年' 
+     when ('3年後'n < Maturity AND Maturity <= '5年後'n) then '3-3年-5年' 
+     when ('5年後'n < Maturity AND Maturity <= '7年後'n) then '4-5年-7年' 
+     when ('7年後'n < Maturity AND Maturity <= '10年後'n) then '5-7年-10年' 
+     else '6-10年超' end AS ラダー 
+FROM Q_MTM_CONSOLI_1, WORK.LADDER;
+QUIT; 
+
+/*連結仕組預金の円元本ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_MTM_CONSOLI_LADDER_PRIN_1 
+AS 
+SELECT 発行体, ラダー AS LADDER, Sum(Q_MTM_CONSOLI_LADDER.円元本) AS 円元本 
+FROM WORK.Q_MTM_CONSOLI_LADDER 
+Group by 発行体, ラダー 
+Order by 発行体, ラダー Asc; 
+QUIT;
+
+/*連結仕組預金の円元本ラダー表(発行体別)*/
+PROC TRANSPOSE DATA=WORK.Q_MTM_CONSOLI_LADDER_PRIN_1 OUT=WORK.Q_MTM_CONSOLI_LADDER_PRIN(DROP=_NAME_);
+BY 発行体;
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_MTM_CONSOLI_LADDER_PRIN 
+	OUTFILE = "&fld_pass\Q_MTM_CONSOLI_LADDER_PRIN.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*連結仕組預金の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_MTM_CONSOLI_LADDER_PROF_1 
+AS 
+SELECT 発行体, ラダー AS LADDER, Sum(Q_MTM_CONSOLI_LADDER.正の時価) AS 正の時価 
+FROM WORK.Q_MTM_CONSOLI_LADDER 
+Group by 発行体, ラダー 
+Order by 発行体, 発行体 Asc; 
+QUIT;
+
+/*連結仕組預金の正の時価ラダー表(発行体別)*/
+PROC TRANSPOSE DATA=WORK.Q_MTM_CONSOLI_LADDER_PROF_1 OUT=WORK.Q_MTM_CONSOLI_LADDER_PROF(DROP=_NAME_);
+BY 発行体;
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_MTM_CONSOLI_LADDER_PROF 
+	OUTFILE = "&fld_pass\Q_MTM_CONSOLI_LADDER_PROF.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*連結仕組預金(対顧)*/
+/*連結仕組預金の円元本ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_MTM_CONSOLI_LADDER_PRIN_対顧1 
+AS 
+SELECT ラダー AS LADDER, Sum(Q_MTM_CONSOLI_LADDER.円元本) AS 円元本 
+FROM WORK.Q_MTM_CONSOLI_LADDER 
+Group by ラダー 
+Order by ラダー Asc; 
+QUIT;
+
+/*連結仕組預金の円元本ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_MTM_CONSOLI_LADDER_PRIN_対顧1 OUT=WORK.Q_MTM_CONSOLI_LADDER_PRIN_対顧(DROP=_NAME_);
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_MTM_CONSOLI_LADDER_PRIN_対顧 
+	OUTFILE = "&fld_pass\Q_MTM_CONSOLI_LADDER_PRIN_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*連結仕組預金の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_MTM_CONSOLI_LADDER_PROF_対顧1 
+AS 
+SELECT ラダー AS LADDER, Sum(Q_MTM_CONSOLI_LADDER.正の時価対顧) AS 正の時価 
+FROM WORK.Q_MTM_CONSOLI_LADDER 
+Group by ラダー 
+Order by ラダー Asc; 
+QUIT;
+
+/*連結仕組預金の正の時価ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_MTM_CONSOLI_LADDER_PROF_対顧1 OUT=WORK.Q_MTM_CONSOLI_LADDER_PROF_対顧(DROP=_NAME_);
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_MTM_CONSOLI_LADDER_PROF_対顧 
+	OUTFILE = "&fld_pass\Q_MTM_CONSOLI_LADDER_PROF_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+
+/*単体仕組債(与信先)*/
+/*仕組債カバー先リスト*/
+PROC SQL; 
+CREATE TABLE WORK.Q_CTPY_SB 
+AS 
+SELECT DISTINCT SP_TYPE.'発行体'n 
+FROM WORK.SP_TYPE 
+WHERE ( SP_TYPE.'債券分類'n = '仕組債（外国）') ;
+QUIT;
+
+
+/*単体仕組債の抽出*/
+%let var = SP_TYPE.'ISINｺｰﾄﾞ'n AS ISIN, SP_TYPE.'債券分類'n, SP_TYPE.'発行体'n, 
+MDY(INPUT(substrn(発行日,6 ,2),2.),INPUT(substrn(発行日,9 ,2),2.),INPUT(substrn(発行日,1 ,4),4.)) as 発行日 format=mmddyys10., 
+MDY(INPUT(substrn(償還日,6 ,2),2.),INPUT(substrn(償還日,9 ,2),2.),INPUT(substrn(償還日,1 ,4),4.)) as 償還日 format=mmddyys10., 
+MTM_REVALUE.Ccy, MTM_REVALUE.PrincipalAmtJpy, MTM_REVALUE.ProfitLossJPY;
+
+PROC SQL; 
+CREATE TABLE WORK.Q_Revalue_SB_1 
+AS 
+SELECT &var 
+FROM WORK.MTM_REVALUE FULL JOIN WORK.SP_TYPE 
+ON (MTM_REVALUE.TheirRef = SP_TYPE.'ISINｺｰﾄﾞ'n), WORK.DATE 
+WHERE (SP_TYPE.'債券分類'n = '仕組債（外国）') AND (substrn(SP_TYPE.'ISINｺｰﾄﾞ'n, 1, 2) = 'XS'); 
+QUIT;
+
+/*償還済み取引の排除*/
+%let var = ISIN, 発行体, 発行日, 償還日, Ccy, PrincipalAmtJpy, ProfitLossJPY, DATE.期末日; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_Revalue_SB_2 
+AS 
+SELECT &var 
+FROM Q_Revalue_SB_1, DATE 
+WHERE (償還日 > DATE.期末日) 
+ORDER BY 発行日; 
+QUIT;
+
+
+/*簿価金額の挿入*/
+%let var = ISIN, 発行体, 発行日, 償還日 As Maturity, 
+case when Q_REVALUE_SB_2.Ccy = " " then SP_BAL.発行通貨 
+     else Q_REVALUE_SB_2.Ccy 
+     end AS Ccy, 
+簿価金額, PrincipalAmtJpy, 
+case when ProfitLossJPY <= 0 then 0 
+     else ProfitLossJPY 
+     end AS 正の時価, 
+case when ProfitLossJPY >= 0 then 0 
+     else -ProfitLossJPY 
+     end AS 正の時価対顧; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_Revalue_SB 
+AS 
+SELECT &var 
+FROM Q_Revalue_SB_2 INNER JOIN SP_BAL
+ON (Q_Revalue_SB_2.ISIN = SP_BAL.'ISINｺｰﾄﾞ'n); 
+QUIT;
+
+
+/*単体仕組債のラダー付データ*/
+PROC SQL; 
+CREATE TABLE WORK.Q_REVALUE_SB_LADDER_1 
+AS
+SELECT ISIN, 発行体, 簿価金額*Q_CCY.Rate AS 簿価円貨, PrincipalAmtJpy, 正の時価, 正の時価対顧, Maturity, 
+case when Maturity <= '1年後'n then '1-1年' 
+     when ('1年後'n < Maturity AND Maturity <= '3年後'n) then '2-1年-3年' 
+     when ('3年後'n < Maturity AND Maturity <= '5年後'n) then '3-3年-5年' 
+     when ('5年後'n < Maturity AND Maturity <= '7年後'n) then '4-5年-7年' 
+     when ('7年後'n < Maturity AND Maturity <= '10年後'n) then '5-7年-10年' 
+     else '6-10年超' end AS ラダー 
+FROM Q_REVALUE_SB INNER JOIN Q_CCY ON (Q_REVALUE_SB.Ccy = Q_CCY.CCY), WORK.LADDER;
+QUIT; 
+
+
+/*円元本データの構成*/
+PROC SQL; 
+CREATE TABLE WORK.Q_REVALUE_SB_LADDER 
+AS
+SELECT ISIN, 発行体, 
+case when PrincipalAmtJpy IS Null then Q_REVALUE_SB_LADDER_1.簿価円貨 
+    else Q_REVALUE_SB_LADDER_1.PrincipalAmtJpy end AS 円元本, 
+正の時価, 正の時価対顧, Maturity, ラダー 
+FROM Q_REVALUE_SB_LADDER_1;
+QUIT; 
+
+/*単体仕組債の円元本データ(ラダー情報付)*/
+PROC SQL;
+CREATE TABLE WORK.Q_REVALUE_SB_LADDER_PRIN_1 
+AS 
+SELECT 発行体, ラダー AS LADDER, Sum(Q_REVALUE_SB_LADDER.円元本) AS 円元本
+FROM WORK.Q_REVALUE_SB_LADDER 
+Group by 発行体, ラダー 
+Order by 発行体, ラダー Asc; 
+QUIT;
+
+/*単体仕組債の円元本ラダー表(発行体別)*/
+PROC TRANSPOSE DATA=WORK.Q_REVALUE_SB_LADDER_PRIN_1 OUT=WORK.Q_REVALUE_SB_LADDER_PRIN(DROP=_NAME_);
+BY 発行体;
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_REVALUE_SB_LADDER_PRIN 
+	OUTFILE = "&fld_pass\Q_REVALUE_SB_LADDER_PRIN.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*単体仕組債の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_REVALUE_SB_LADDER_PROF_1 
+AS 
+SELECT 発行体, ラダー AS LADDER, Sum(Q_REVALUE_SB_LADDER.正の時価) AS 正の時価 
+FROM WORK.Q_REVALUE_SB_LADDER 
+Group by 発行体, ラダー 
+Order by 発行体, 発行体 Asc; 
+QUIT;
+
+/*単体仕組債の正の時価ラダー表(発行体別)*/
+PROC TRANSPOSE DATA=WORK.Q_REVALUE_SB_LADDER_PROF_1 OUT=WORK.Q_REVALUE_SB_LADDER_PROF(DROP=_NAME_);
+BY 発行体;
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_REVALUE_SB_LADDER_PROF 
+	OUTFILE = "&fld_pass\Q_REVALUE_SB_LADDER_PROF.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*単体仕組債(対顧)*/
+/*単体仕組債の円元本ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_REVALUE_SB_LADDER_PRIN_対顧1 
+AS 
+SELECT ラダー AS LADDER, Sum(Q_REVALUE_SB_LADDER.円元本) AS 円元本 
+FROM WORK.Q_REVALUE_SB_LADDER 
+Group by ラダー 
+Order by ラダー Asc; 
+QUIT;
+
+/*単体仕組債の円元本ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_REVALUE_SB_LADDER_PRIN_対顧1 OUT=WORK.Q_REVALUE_SB_LADDER_PRIN_対顧(DROP=_NAME_);
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_REVALUE_SB_LADDER_PRIN_対顧 
+	OUTFILE = "&fld_pass\Q_REVALUE_SB_LADDER_PRIN_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*単体仕組債の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_REVALUE_SB_LADDER_PROF_対顧1 
+AS 
+SELECT ラダー AS LADDER, Sum(Q_REVALUE_SB_LADDER.正の時価対顧) AS 正の時価 
+FROM WORK.Q_REVALUE_SB_LADDER 
+Group by ラダー 
+Order by ラダー Asc; 
+QUIT;
+
+/*単体仕組預金の正の時価ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_REVALUE_SB_LADDER_PROF_対顧1 OUT=WORK.Q_REVALUE_SB_LADDER_PROF_対顧(DROP=_NAME_);
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_REVALUE_SB_LADDER_PROF_対顧 
+	OUTFILE = "&fld_pass\Q_REVALUE_SB_LADDER_PROF_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+
+/*連結仕組債(与信先)*/
+/*仕組債カバー先リスト*/
+PROC SQL; 
+CREATE TABLE WORK.Q_CTPY_SB 
+AS 
+SELECT DISTINCT SP_TYPE.'発行体'n 
+FROM WORK.SP_TYPE 
+WHERE ( SP_TYPE.'債券分類'n = '仕組債（外国）') ;
+QUIT;
+
+
+/*連結仕組債の抽出*/
+%let var = SP_TYPE.'ISINｺｰﾄﾞ'n AS ISIN, SP_TYPE.'債券分類'n, SP_TYPE.'発行体'n, 
+MDY(INPUT(substrn(発行日,6 ,2),2.),INPUT(substrn(発行日,9 ,2),2.),INPUT(substrn(発行日,1 ,4),4.)) as 発行日 format=mmddyys10., 
+MDY(INPUT(substrn(償還日,6 ,2),2.),INPUT(substrn(償還日,9 ,2),2.),INPUT(substrn(償還日,1 ,4),4.)) as 償還日 format=mmddyys10., 
+MTM_CONSOLI.Ccy, MTM_CONSOLI.PrincipalAmtJpy, MTM_CONSOLI.ProfitLossJPY;
+
+PROC SQL; 
+CREATE TABLE WORK.Q_CONSOLI_SB_1 
+AS 
+SELECT &var 
+FROM WORK.MTM_CONSOLI FULL JOIN WORK.SP_TYPE 
+ON (MTM_CONSOLI.TheirRef = SP_TYPE.'ISINｺｰﾄﾞ'n), WORK.DATE 
+WHERE (SP_TYPE.'債券分類'n = '仕組債（外国）') AND (substrn(SP_TYPE.'ISINｺｰﾄﾞ'n, 1, 2) = 'XS'); 
+QUIT;
+
+
+/*償還済み取引の排除*/
+%let var = ISIN, 発行体, 発行日, 償還日, Ccy, PrincipalAmtJpy, ProfitLossJPY, DATE.期末日; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_CONSOLI_SB_2 
+AS 
+SELECT &var 
+FROM Q_CONSOLI_SB_1, DATE 
+WHERE (償還日 > DATE.期末日) 
+ORDER BY 発行日; 
+QUIT;
+
+
+/*簿価金額の挿入*/
+%let var = ISIN, 発行体, 発行日, 償還日 As Maturity, 
+case when Q_CONSOLI_SB_2.Ccy = " " then SP_BAL.発行通貨 
+     else Q_CONSOLI_SB_2.Ccy 
+     end AS Ccy, 
+簿価金額, PrincipalAmtJpy, 
+case when ProfitLossJPY <= 0 then 0 
+     else ProfitLossJPY 
+     end AS 正の時価, 
+case when ProfitLossJPY >= 0 then 0 
+     else -ProfitLossJPY 
+     end AS 正の時価対顧; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_CONSOLI_SB 
+AS 
+SELECT &var 
+FROM Q_CONSOLI_SB_2 INNER JOIN SP_BAL
+ON (Q_CONSOLI_SB_2.ISIN = SP_BAL.'ISINｺｰﾄﾞ'n); 
+QUIT;
+
+
+/*連結仕組債のラダー付データ*/
+PROC SQL; 
+CREATE TABLE WORK.Q_CONSOLI_SB_LADDER_1 
+AS
+SELECT ISIN, 発行体, 簿価金額*Q_CCY.Rate AS 簿価円貨, PrincipalAmtJpy, 正の時価, 正の時価対顧, Maturity, 
+case when Maturity <= '1年後'n then '1-1年' 
+     when ('1年後'n < Maturity AND Maturity <= '3年後'n) then '2-1年-3年' 
+     when ('3年後'n < Maturity AND Maturity <= '5年後'n) then '3-3年-5年' 
+     when ('5年後'n < Maturity AND Maturity <= '7年後'n) then '4-5年-7年' 
+     when ('7年後'n < Maturity AND Maturity <= '10年後'n) then '5-7年-10年' 
+     else '6-10年超' end AS ラダー 
+FROM Q_CONSOLI_SB INNER JOIN Q_CCY ON (Q_CONSOLI_SB.Ccy = Q_CCY.CCY), WORK.LADDER;
+QUIT; 
+
+
+/*円元本データの構成*/
+PROC SQL; 
+CREATE TABLE WORK.Q_CONSOLI_SB_LADDER 
+AS
+SELECT ISIN, 発行体, 
+case when PrincipalAmtJpy IS Null then Q_CONSOLI_SB_LADDER_1.簿価円貨 
+    else Q_CONSOLI_SB_LADDER_1.PrincipalAmtJpy end AS 円元本, 
+正の時価, 正の時価対顧, Maturity, ラダー 
+FROM Q_CONSOLI_SB_LADDER_1;
+QUIT; 
+
+/*連結仕組債の円元本データ(ラダー情報付)*/
+PROC SQL;
+CREATE TABLE WORK.Q_CONSOLI_SB_LADDER_PRIN_1 
+AS 
+SELECT 発行体, ラダー AS LADDER, Sum(Q_CONSOLI_SB_LADDER.円元本) AS 円元本
+FROM WORK.Q_CONSOLI_SB_LADDER 
+Group by 発行体, ラダー 
+Order by 発行体, ラダー Asc; 
+QUIT;
+
+/*連結仕組債の円元本ラダー表(発行体別)*/
+PROC TRANSPOSE DATA=WORK.Q_CONSOLI_SB_LADDER_PRIN_1 OUT=WORK.Q_CONSOLI_SB_LADDER_PRIN(DROP=_NAME_);
+BY 発行体;
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_CONSOLI_SB_LADDER_PRIN 
+	OUTFILE = "&fld_pass\Q_CONSOLI_SB_LADDER_PRIN.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*連結仕組債の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_CONSOLI_SB_LADDER_PROF_1 
+AS 
+SELECT 発行体, ラダー AS LADDER, Sum(Q_CONSOLI_SB_LADDER.正の時価) AS 正の時価 
+FROM WORK.Q_CONSOLI_SB_LADDER 
+Group by 発行体, ラダー 
+Order by 発行体, 発行体 Asc; 
+QUIT;
+
+/*連結仕組債の正の時価ラダー表(発行体別)*/
+PROC TRANSPOSE DATA=WORK.Q_CONSOLI_SB_LADDER_PROF_1 OUT=WORK.Q_CONSOLI_SB_LADDER_PROF(DROP=_NAME_);
+BY 発行体;
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_CONSOLI_SB_LADDER_PROF 
+	OUTFILE = "&fld_pass\Q_CONSOLI_SB_LADDER_PROF.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*連結仕組債(対顧)*/
+/*連結仕組債の円元本ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_CONSOLI_SB_LADDER_PRIN_対顧1 
+AS 
+SELECT ラダー AS LADDER, Sum(Q_CONSOLI_SB_LADDER.円元本) AS 円元本 
+FROM WORK.Q_CONSOLI_SB_LADDER 
+Group by ラダー 
+Order by ラダー Asc; 
+QUIT;
+
+/*連結仕組債の円元本ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_CONSOLI_SB_LADDER_PRIN_対顧1 OUT=WORK.Q_CONSOLI_SB_LADDER_PRIN_対顧(DROP=_NAME_);
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_CONSOLI_SB_LADDER_PRIN_対顧 
+	OUTFILE = "&fld_pass\Q_CONSOLI_SB_LADDER_PRIN_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*連結単体仕組債の正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_CONSOLI_SB_LADDER_PROF_対顧1 
+AS 
+SELECT ラダー AS LADDER, Sum(Q_CONSOLI_SB_LADDER.正の時価対顧) AS 正の時価 
+FROM WORK.Q_CONSOLI_SB_LADDER 
+Group by ラダー 
+Order by ラダー Asc; 
+QUIT;
+
+/*連結仕組預金の正の時価ラダー表*/
+PROC TRANSPOSE DATA=WORK.Q_CONSOLI_SB_LADDER_PROF_対顧1 OUT=WORK.Q_CONSOLI_SB_LADDER_PROF_対顧(DROP=_NAME_);
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_CONSOLI_SB_LADDER_PROF_対顧 
+	OUTFILE = "&fld_pass\Q_CONSOLI_SB_LADDER_PROF_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+
+/*FXO取引の処理*/
+/*Prelude FXO(基軸)取引の抽出*/
+%Let var = 取引番号, substrn(通貨OP約定1_通貨ﾍﾟｱ, 1, 3) AS 基軸通貨, 通貨OP約定1_基軸通貨金額 AS 基軸金額, 
+case when substrn(通貨OP約定1_通貨ﾍﾟｱ, 1, 3)^='JPY' then int(通貨OP約定1_基軸通貨金額*Q_CCY.RATE) 
+    else 通貨OP約定1_基軸通貨金額 end as 基軸円貨 format=comma15.; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_Prelude_基軸円貨 
+AS 
+SELECT &var 
+FROM WORK.FX_OPTION 
+INNER JOIN WORK.Q_CCY 
+on Q_CCY.CCY = substrn(FX_OPTION.通貨OP約定1_通貨ﾍﾟｱ, 1, 3); 
+QUIT;
+
+/*Prelude FXO(相手)取引の抽出*/
+%Let var = 取引番号, substrn(通貨OP約定1_通貨ﾍﾟｱ, 5, 3) AS 相手通貨, 通貨OP約定1_相手通貨金額 AS 相手金額, 
+case when substrn(通貨OP約定1_通貨ﾍﾟｱ, 5, 3)^='JPY' then int(通貨OP約定1_相手通貨金額*Q_CCY.RATE) 
+    else 通貨OP約定1_相手通貨金額 end as 相手円貨 format=comma15.; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_Prelude_相手円貨
+AS 
+SELECT &var 
+FROM WORK.FX_OPTION 
+INNER JOIN WORK.Q_CCY 
+on Q_CCY.CCY = substrn(FX_OPTION.通貨OP約定1_通貨ﾍﾟｱ, 5, 3); 
+QUIT;
+
+/*Prelude FXO取引データの作成*/
+%Let var = FX_OPTION.取引番号, CIF, 取引先ｺｰﾄﾞ, 取引先名, 約定日時, 
+MDY(INPUT(substrn(通貨OP約定1_ｵﾌﾟｼｮﾝ満期日時, 6, 2), 2.),INPUT(substrn(通貨OP約定1_ｵﾌﾟｼｮﾝ満期日時, 9, 2), 2.),INPUT(substrn(通貨OP約定1_ｵﾌﾟｼｮﾝ満期日時,1 ,4),4.)) AS 満期日 format=mmddyys10., 
+ｱﾌﾀｰ取引ﾌﾗｸﾞ, ﾃﾞｰﾀ取得元区分, 'ﾌﾟﾗｲｽ(円貨)'n AS 円時価, ﾃﾞﾙﾀ, 通貨OP約定1_売買区分ｺｰﾄﾞ AS 売買ｺｰﾄﾞ, 通貨OP約定1_売買区分 AS 売買, 通貨OP約定1_ｺｰﾙﾌﾟｯﾄ区分ｺｰﾄﾞ AS ｺｰﾙﾌﾟｯﾄ区分ｺｰﾄﾞ, 通貨OP約定1_ｺｰﾙﾌﾟｯﾄ区分 AS ｺｰﾙﾌﾟｯﾄ, 
+substrn(通貨OP約定1_通貨ﾍﾟｱ, 1, 3) AS 基軸通貨, 通貨OP約定1_基軸通貨金額 AS 基軸金額, Q_FXO_Prelude_基軸円貨.基軸円貨, 
+substrn(通貨OP約定1_通貨ﾍﾟｱ, 5, 3) AS 相手通貨, 通貨OP約定1_相手通貨金額 AS 相手金額, Q_FXO_Prelude_相手円貨.相手円貨, 
+case when Q_FXO_Prelude_基軸円貨.基軸円貨 > Q_FXO_Prelude_相手円貨.相手円貨 then Q_FXO_Prelude_基軸円貨.基軸円貨 
+    else Q_FXO_Prelude_相手円貨.相手円貨 end as 円元本 format=comma15., 
+通貨OP約定1_権利行使価格 AS 行使価格, 通貨OP約定1_ﾌﾞｯｸｺｰﾄﾞ AS ﾌﾞｯｸｺｰﾄﾞ, 通貨OP約定1_ｵﾌﾟｼｮﾝｽﾃｰﾀｽ AS ｵﾌﾟｼｮﾝｽﾃｰﾀｽ, ﾃﾞｰﾀ取得元区分 AS 取得元区分; 
+
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_Prelude 
+AS 
+SELECT &var 
+FROM (WORK.FX_OPTION INNER JOIN WORK.Q_FXO_Prelude_基軸円貨 on FX_OPTION.取引番号=Q_FXO_Prelude_基軸円貨.取引番号) 
+INNER JOIN WORK.Q_FXO_Prelude_相手円貨 on Q_FXO_Prelude_基軸円貨.取引番号=Q_FXO_Prelude_相手円貨.取引番号 
+Where ｵﾌﾟｼｮﾝｽﾃｰﾀｽ not in ('EXERCISE','ABANDON')
+Order by 取引番号 asc; 
+QUIT;
+
+/*FXOのラダー情報を含むデータ作成*/
+PROC SQL; 
+CREATE TABLE WORK.Q_FXO_LADDER 
+AS 
+SELECT 取引先ｺｰﾄﾞ, 取引先名, 円元本, 
+case when 円時価 <= 0 then 0 
+     else 円時価 
+     end As 正の時価 format=comma15., 
+満期日, 
+case when 満期日 <= '1年後'n then '1-1年' 
+     when ('1年後'n < 満期日 AND 満期日 <= '3年後'n) then '2-1年-3年' 
+     when ('3年後'n < 満期日 AND 満期日 <= '5年後'n) then '3-3年-5年' 
+     when ('5年後'n < 満期日 AND 満期日 <= '7年後'n) then '4-5年-7年' 
+     when ('7年後'n < 満期日 AND 満期日 <= '10年後'n) then '5-7年-10年' 
+     else '6-10年超' end AS ラダー 
+FROM WORK.Q_FXO_Prelude, WORK.LADDER;
+QUIT; 
+
+
+/*FXOの円元本ラダー(カバー)*/
+PROC SQL;
+CREATE TABLE WORK.Q_FXO_LADDER_PRIN 
+AS 
+SELECT 取引先ｺｰﾄﾞ, 取引先名, ラダー AS LADDER, Sum(Q_FXO_LADDER.円元本) AS 円元本 format=comma15. 
+FROM WORK.Q_FXO_LADDER 
+Where (取引先ｺｰﾄﾞ ^= 2037) And (取引先ｺｰﾄﾞ ^= 6002)
+Group by 取引先ｺｰﾄﾞ, 取引先名, ラダー 
+Order by 取引先名, ラダー Asc; 
+QUIT;
+
+/*FXOの円元本ラダー表(取引先別)*/
+PROC TRANSPOSE DATA=WORK.Q_FXO_LADDER_PRIN OUT=WORK.Q_FXO_LADDER_PRIN_COVER(DROP=_NAME_);
+BY 取引先名;
+VAR 円元本;
+ID LADDER;
+RUN;
+
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_FXO_LADDER_PRIN_COVER 
+	OUTFILE = "&fld_pass\Q_FXO_LADDER_PRIN.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*FXOの円元本ラダー対顧*/
+PROC SQL;
+CREATE TABLE WORK.Q_FXO_LADDER_PRIN_CL 
+AS 
+SELECT 取引先ｺｰﾄﾞ, 取引先名, ラダー AS LADDER, Sum(Q_FXO_LADDER.円元本) AS 円元本 format=comma15. 
+FROM WORK.Q_FXO_LADDER 
+Where (取引先ｺｰﾄﾞ = 2037) OR (取引先ｺｰﾄﾞ = 6002)
+Group by 取引先ｺｰﾄﾞ, 取引先名, ラダー 
+Order by 取引先名, ラダー Asc; 
+QUIT;
+
+/*FXOの円元本ラダー表(対顧)*/
+PROC TRANSPOSE DATA=WORK.Q_FXO_LADDER_PRIN_CL OUT=WORK.Q_FXO_LADDER_PRIN_CLIENT(DROP=_NAME_);
+BY 取引先名;
+VAR 円元本;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_FXO_LADDER_PRIN_CLIENT 
+	OUTFILE = "&fld_pass\Q_FXO_LADDER_PRIN_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*FXOの正の時価ラダー*/
+PROC SQL;
+CREATE TABLE WORK.Q_FXO_LADDER_PROF 
+AS 
+SELECT 取引先ｺｰﾄﾞ, 取引先名, ラダー AS LADDER, Sum(Q_FXO_LADDER.正の時価) AS 正の時価 format=comma15. 
+FROM WORK.Q_FXO_LADDER 
+Where (取引先ｺｰﾄﾞ ^= 2037) And (取引先ｺｰﾄﾞ ^= 6002)
+Group by 取引先ｺｰﾄﾞ, 取引先名, ラダー 
+Order by 取引先名, ラダー Asc; 
+QUIT;
+
+/*FXOの正の時価ラダー表(取引先別)*/
+PROC TRANSPOSE DATA=WORK.Q_FXO_LADDER_PROF OUT=WORK.Q_FXO_LADDER_PROF_COVER(DROP=_NAME_);
+BY 取引先名;
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_FXO_LADDER_PROF_COVER 
+	OUTFILE = "&fld_pass\Q_FXO_LADDER_PROF.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
+/*FXOの正の時価対顧*/
+PROC SQL;
+CREATE TABLE WORK.Q_FXO_LADDER_PROF_CL 
+AS 
+SELECT 取引先ｺｰﾄﾞ, 取引先名, ラダー AS LADDER, Sum(Q_FXO_LADDER.正の時価) AS 正の時価 format=comma15. 
+FROM WORK.Q_FXO_LADDER 
+Where (取引先ｺｰﾄﾞ = 2037) OR (取引先ｺｰﾄﾞ = 6002)
+Group by 取引先ｺｰﾄﾞ, 取引先名, ラダー 
+Order by 取引先名, ラダー Asc; 
+QUIT;
+
+/*FXOの正の時価ラダー表(対顧)*/
+PROC TRANSPOSE DATA=WORK.Q_FXO_LADDER_PROF_CL OUT=WORK.Q_FXO_LADDER_PROF_CLIENT(DROP=_NAME_);
+BY 取引先名;
+VAR 正の時価;
+ID LADDER;
+RUN;
+
+/*CSVの出力(\\STBFPYAMA01\smbctb\PRIV-RMG\98_作業用\05_バーゼル報告(信用リスク)\Derivative\SAS_Output)*/
+PROC EXPORT DATA = WORK.Q_FXO_LADDER_PROF_CLIENT 
+	OUTFILE = "&fld_pass\Q_FXO_LADDER_PROF_対顧.csv"
+	DBMS = CSV 
+	REPLACE;												
+RUN;
+
