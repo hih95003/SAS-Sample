@@ -1,673 +1,865 @@
-/************************************************************************************/
-/***** データ解析のためのSAS入門　 **************************************************/
-/***** バージョン: ２版　　**********************************************************/
-/***** 作成： 宮岡悦良, 吉澤敦子  ***************************************************/
-/***** 日付:  2014/02/07 　**********************************************************/
-/************************************************************************************/
+/***** SAS Programming 第1章：　利用するデータセット作成 ******/
+/***** 作成： 2013   ******************/
 
-/**** 第1章　　SASへの入門 **********************************************************/
 
-/**** 1.1　SASへの招待**************************************************************/
-
-data ex111;
-input id gender $ height weight;
- hyoujun = (height - 100) * 0.9;
-bmi = weight/((height / 100)**2) ;
-himando1 = (weight - hyoujun) / hyoujun * 100;
-if himando1 > 20 then himan1 = 1;
-  else himan1 = 0;
+data  ex11;
+input  subject $ gender $ math1 math2;
+sum = math1 + math2;  
+ave = mean(math1,math2);
+if  ave>=80  then  grade="A";
+else  if  ave>= 70  then grade= "B";
+else  if  ave>= 60  then grade= "C";
+else  grade = "F";
+label  subject="学籍番号"  gender="性別" 
+   math1="数学1"  math2="数学2" 
+   sum="合計点"   ave="平均点" 
+   grade="成績" ; 
 cards;
-1  m  160  70
-2  m  176  78
-3  f  153  50
-4  f  167  55
-5  m  158  53
-6  f  163  52
-7  f  167  72
-8  m  174  83
-9  m  176  92
-10 f  152  54
-;
-run;
-proc print data=ex111;
-run;
-
-proc means data = ex111  n  mean  std  var  min  max  range  maxdec=3 ;
-    var  height  weight;
-proc freq  data = ex111;
-    tables  gender  himan1;
-run;
-
-proc  means  n  mean  std ;
-    var  height  weight;
-  class gender;
-run;
-
-
-title; 
-data ex112;
-length  smoking $ 10;
-input cancer $ smoking $ count;
-cards;
-no  smokers 32
-no  nonsmokers 11
-yes smokers 60
-yes nonsmokers 3
-;
-run;
-proc freq  data = ex112;
- tables  cancer * smoking;
- weight  count;
-run;
-
-title; 
-data ex113;
- do x =  -3 to 3 by 0.01;
-   y = sin(cos(-x**2));
-   output;
- end;
- run;
-proc  gplot  data=ex113;
- plot  y*x;
- symbol i=join  v=none;
-run; 
-quit;
-
-data ex114;
-do  x =  -3 to 3 by 0.1;
-  do  y =  -3 to 3 by 0.1;
-   z = sin(sqrt(x**2 + y**2));
-   output;
-  end;
-end;
-run;
-proc g3d data=ex114;
-plot  y*x = z / rotate=30 tilt=45 ;
-run; 
-quit;
-
-data rnorm1;
- do i = 1 to 1000;
-   z  = rannor(12345);
- output;
- end;
-run;
-title    '1000 random observations from';
-title2   'Standard Normal Distribution';
-proc  gchart  data= rnorm1;
- vbar z ;
-run;
-
-/***  1.2　SASプログラミング  ******************************************************/
-title ; 
-data;
-input  A1 a2 aB abC;
-cards;
-1 2 3 4
-;
-proc  print;
-var  a1 A2 ab ABC;
-run;
-
-data ex121;
- input  x  y1  y2  z  $;
-cards;
- 1   2   3  a 
--1  -2  -3  b 
- 0   1  10  c 
- 5  12  29  c
-;
-run;
-title 'Result of program 1.2.2.1'; 
-proc  print data=ex121;
- var  y1  z ;
-run;
-
-data;
-length  name $ 20;
-input  name & $;
-cards;
-abcdefgh ijklmnopqrstuvwxyz
-;
-title 'Result by program 1.2.2.2'; 
-proc  print;
-run;
-
-data; 
- input  @1 v1 1.  @2 v2 1.  @3 v3 1.
-  @4 v4 1.  @6 age 2.  @9 gender $1.;
-cards;
-1231 23 F
-2143 19 F
-2214 18 M
-3111 20 M
-2144 22 F
-;
-run;
-title 'Result by program 1.2.2.3';
-proc  print;
-run;
-
-data; 
-input  v1  1  v2  2  v3  3  v4  4  age 6-7  gender $ 9;
-cards;
-1231 23 F
-2143 19 F
-2214 18 M
-3111 20 M
-2144 22 F
-;
-title 'Result by program 1.2.2.6';
-proc print;
-run;
-
-data; 
-input #1 (id) (3.) @5 (v1-v4) (1.) 
-  #2 @6 (age) (2.) @9 (gender) ($1.);
-cards;
-001 1231 
-001  23 F
-002 2143 
-002  19 F
-003 2214
-003  18 M
-004 3111
-004  20 M
-005 2144 
-005  22 F
- ;
-title 'Result by program 1.2.2.7';
-proc print;
-run;
-
-data;
-input  @1 name $  @10  birthday yymmdd10.  @22  salary comma6.;
-cards;
-Randy    1963/07/29  75,000
-Tom      1975/03/16  65,000
-;
-title 'birthday and salary data';
-proc  print ;
-run;
-
-proc print ;
-format  birthday nengo. ;  /* 年号で表示する */
-run;
-
-data;
-input x 3.1 @7 y 4.;
-cards;
-123   123
-12.3  12.3
-;
-title 'Result by program 1.2.2.9';
-proc print; run;
-
-data;
-input  y  $char7.  z  $;
-cards;
-a b cd   e
-a b  cd   e
-;
-run; 
-title 'Result by program 1.2.2.10';
-proc  print;  run;
-
-data;
-input id 1-3   x  5  y  7-8  z 10  x1  12  x2  14  x3  16 ;  
-cards;
- 001 2 34 5 7 8 9
-;
-run;
-
-data;
-input  x  y  @@ ;
-cards;
-1 2 3 4 5 6
+s002  m  89  68
+s003  m  69  77
+s004  f  54  68
+s009  f  78  91
+s012  f  91  96
+s013  m  63  44
+k021  m  80  80
+k023  f  56  61
+k024  m  72  79
+k026  f  89  89
+s103  m  91 100
+s106  m  90  98
 ; 
-title 'Result by program 1.2.2.11';
-proc  print;  run;
+run ;
 
-data;
-input x  @;
-input y  @;
-input z;
-cards;
-1 2 3 4 5 6
-;
-title 'Result by program 1.2.2.12';
-proc  print;  run;
 
-data ex122;
-infile  'student.txt';
-input x y1  y2  z $;
-run;
-title  'Report of student score'; 
-title2 'from student.txt';
-proc  print  data = ex122;
- var  y1  z ;
+title  "Example ex11";
+proc  print  data=ex11 ;
+run; 
+title  "Sorted by the grade" ;
+proc  sort  data=ex11  ;
+  by  grade;
+proc  print  label;
 run;
 
-data;
-infile 'student.csv' delimiter = ',';
-input  v1-v4  age  gender $ ;
-run;
-title  'Report of Student score';
-title2 'from student.csv';
-proc  print;
-run;
 
-/***  1.3　データ加工  ******************************************************/
-title; 
+title  "数学1 成績" ; 
+proc  means  data= ex11;
+var math1;
+class  gender ;
+proc  gchart  data= ex11;
+pie  grade /  group= gender  across=2; 
+hbar  gender  / sumvar=math1  type=mean  width=15  ;
+run ;
 
-data ex131;
-length  city $ 10;
-input  city $  temp;
- temF = 32 + temp*9/5;
-cards;
-Tokyo 22
-NewYork 17
-Sydney 3 
-Honolulu 30
-;
-title 'temperature list by city';
-proc  print ;
+
+/**********  健康診断  health データセット *********/
+proc  import  out= health 
+            datafile= "C:\sas_study\student.xls" 
+            dbms=EXCEL  REPLACE;
+     sheet="health check"; 
+     getnames=YES; 
+     mixed=NO;
+     scantext=YES;
+     usedate=YES;
+     scantime=YES;
 run;
 
-data ex132;
-input  gender $  height  weight  age;
-if gender = "m" then
-  cal = 66 + 13.7*weight + 5*height - 6.8*age;
- else if gender = "f" then
-  cal = 655 + 9.6*weight + 1.7*height - 7*age;
-cards;
-m 160 70 25
-m 170 65 30
-m 155 52 16
-f 155 40 21
-f 160 58 35
-;
-title 'basal metabolism rate';
-proc  print;
+proc print data=health; 
 run;
 
-data;
-input  x  y  $ ;
-if  y in ('a','c') then z=10 ; else z=0;
-cards;
-1 a
-2 a
-3 b
-4 b
-5 c
-;
-title 'Result by program 1.3.1.3';
-proc  print;  run;
+/********* 学生生活満足度調査  surver データセット　*********/
+options  noxsync  noxwait;
+x  "C:\sas_study\student.xls";
+filename  scfile   dde  "excel|student survey!r5c1:r30c6" ;
 
-data;
-input x ;
-select(x);
- when(1)  z = 10 ;
- when(2)  z = 20 ;
- when(3)  z = 30 ;
- otherwise  z = 0 ;
-end;
-cards;
-1
-2
-3
-4
-5
-;
-title 'Result by program 1.3.1.4';
-proc  print; run;
-
-data ex133;
-do  i = 1 to 5;
-  i2 = i**2 ;
-  output ;
-end;
-title;
-proc  print;
+data  survey;
+infile  scfile  dlm = '09'x  notab  dsd  missover  lrecl = 20000;
+input  pin $  area $  ctime money sc career ; 
+label  pin="学籍番号"   area="住所"  ctime="通学時間"
+ money="所持金"  sc="満足度"  career="進路"; 
+informat  money  comma. ; 
+format  money  yen.  ; 
+run;
+title "student survey";
+proc print data=survey (obs=10) ; 
 run;
 
-title; 
 
-data ex134;
-do  k = 1  to  5  by  3 ;
-i2 = k**2 ;
-output;
-end;
-proc  print;
+/***  1.2	データセットの加工   ************/
+proc  format ;
+value  scfmt 1="大変満足"  2="満足" 3="普通" 4="不満足" 5="大変不満" ; 
+value  careerfmt 1="就職"  2="進学" 3="教員" 4="その他" ; 
+value  genderfmt  0="男"         1="女" ;
+value  smkfmt   0="喫煙歴なし"  1="喫煙" ; 
+value $  gfmt   "m"= "男"   "f" = "女" ; 
 run;
 
-data out1 out2;
-do  i = 1 to  5 ;
-  output out2 ;
-end;
-proc  print data=out2; run;
-
-data ex135;
-do  i = 1 to 3;
-  do  j = 2 to 5;
-    x = i + j ;
-    output;
-  end;
-end;
-proc  print;
+proc  print  data=survey;
+format  sc  scfmt.  career  careerfmt.  ; 
 run;
 
-data;
-k = 0;
-do while (k<=3);
-  k2 = k**2;
-  output;
-  k = k+1;
-end;
-proc print; run;
 
-data;
-k = 0;
-do until (k>3);
-  k2 = k**2;
-  output;
-  k = k+1;
-end;
-proc print; run;
-
-/***** 1.4　データセットの操作 ****************************************************/
-title; 
-
-data old;
-input  x  y;
-datalines;
-1 2
-3 4
-;
-data new;
-set old;	
-z = x + y ;
-drop x;
-run;
-proc print data=new; run;
-
-
-data s1;
-input a b;
-cards;
-1 22
-3 12
-7 34
-3 76
-4 65
-2 56
-;
-title 's1 dataset';
-proc print data=s1 ;
-run;
-proc sort data=s1 out=s2;
-by a;
-title 's2 dataset - sorted data';
-proc print  data=s2;  run;
-
-proc sort  data=s1  out=d1;
-by  descending  a;
-title 'd1 dataset to sort by descending variable a';
-proc  print  data=d1;
+data  health ;
+ set  health;
+ label  age="年齢"  gender="性別"  height="身長"  weight="体重"
+        sleeping="睡眠時間"        smoking="喫煙歴"   nsmoking="１日の喫煙本数" ;
+format  gender   genderfmt.  ; 
+format  smoking  smkfmt.  ; 
+ run;
+title  "health data" ;
+proc  print  data=health  label;
 run;
 
-title; 
-data one;
-input  x  y ;
-cards;
-1 2
-3 4
-;
-data two;
-input  x  y ;
-cards;
-9 8
-7 6
-;
-data  both;
-set one two;
-run;
-title 'both dataset (concatenation)'; 
-proc print  data=both; 
-run;
 
-title;
-data one;
-input  x  y ;
-cards;
-1 2
-3 4 
-;
-data two;
-input  z  w ;
-cards;
-9 8 
-7 6 
-;
-data three;
- merge  one  two ;
-run;
-title 'three dataset (merge)';
-proc print  data=three; run;
-
-data one;
-input  a  b  c $ ;
-cards;
-1 25 blue
-2 26 white
-3 27 black
-;
-data two;
-input  a  x  y  $ ;
-cards;
-1 51 m
-2 52 m
-3 53 f
-;
-proc sort  data=one;
- by  a ;
-proc sort  data=two;
- by  a;
-data three;
- merge  one  two;
- by  a;
-proc print data=three;  run;
+data survey;
+ set survey;
+ format sc scfmt.  career  careerfmt. ;
+data  ex11;
+ set  ex11;
+ format   gender  $ gfmt.  ; 
+run; 
+title "student survey";
+proc print data=survey  label; run;
+title  "Example ex11";
+proc  print  data=ex11  label; run;
 
 
-/*** 付　　録 ***********************************************************/
-title;
-options  validvarname = any ;
-
-data totals;
-   length  部署 $ 5  地域 $ 4 ;
-   input  部署  地域  四半期  売り上げ ;
-cards;
-第1課   東京   1 70430
-第1課   大阪　 1 82255
-第1課   福岡   1 55436
-;
-run;
-title  '地域別売り上げ';
-proc  gchart  data=totals ;  
-  format  売り上げ yen8. ; 
-  vbar3d  地域 / sumvar = 売り上げ  width=20 ; 
-run; quit; 
-
-title; 
-data ex1out;
- set  ex111;
-file  "c:\tmp\out.txt";
-put  id @3  gender $  @5 height  @10  weight  @14  hyoujun  4.3  @20 
-      bmi  6.3  @30  himando1  6.3  @40  himan1;
+proc  format lib=sasuser ;
+value  scfmt 1="大変満足"  2="満足" 3="普通" 4="不満足" 5="大変不満" ; 
+value  careerfmt 1="就職"  2="進学" 3="教員" 4="その他" ; 
+value  genderfmt  0="男"         1="女" ;
+value  smkfmt   0="喫煙歴なし"  1="喫煙" ; 
+value $  gfmt   "m"= "男"   "f" = "女" ; 
 run;
 
-data _null_;
-input x;
-file  print;
-put @5 'x=' +2 x 5.3;
-cards;
-23.45
-;
-run;
-
-data data1;
-filename  stdfile  'c:\tmp\student.dat' ;   /* ファイル参照名の割り当て */
-infile  stdfile ;
-input  x  y1  y2  z  $ ;
-run;
-proc print data= data1;
-run;
-
-data data2;
-infile 'c:\tmp\studentm.dat' missover ;
-input  x  y1  y2  z ;
-run;
-proc print  data= data2;
-run;
-
-data data3;
-infile 'c:\tmp\studentm2.csv'  delimiter=',';
-input  v1-v4  age  gender $ ;
-run;
-proc print data=data3;
-run;
-
-data data3;
-infile 'c:\tmp\studentm2.csv'  delimiter=',' dsd;
-input  v1-v4  age  gender $ ;
-run;
-proc print data=data3;
-run;
-
-data data4;
-infile 'c:\tmp\sample1.dat'  truncover;
-input  a  5.  @7  b  5.2;
-run;
-proc print data=data4;
-run;
-
-data student;
-input  subject $  tanaka  yoshida  kato  sasaki  nishi ;
-cards;
-math   80 75 80 90 85  
-eng     85 90 75 80 65  
-kokugo  65 65 70 90 90  
-;
-proc print  data=student;  run;
-proc transpose  data=student  out=new ;
-run;
-proc print data=new; run;
-
-proc transpose  data=student  out=new1  name=namae;
- id  subject;
-run;
-proc print; run;
-
-data one;
-input  a  b  c  $;
-cards;
-1 25 blue
-2 26 white
-3 27 black
-;
-data two;
-input  a  b  c  $;
-cards;
-1 25 blue
-2 26 white
-3 23 black
-4 30 orange
-;
-proc  compare  base=one compare=two ;
-run;
-
-proc  contents  data=three ;
-run;
-
-data  ex1f;
- input name $  number ;
- cards;
- TANAKA 23 
- SUZUKI  . 
- NAKADA  19 
- NAKAMURA 13 
- nakada  22
- SUZUDA  33
- suzuda . 
- ;
- proc print data=ex1f;run;
-
-proc print  data= ex1f;
-where  substr(name,1,4)='NAKA';
-run;
-
-/****  1章・演習問題 *********************************************************/
-title ;
-goptions reset= all ;
-
-data;
-fact = 1;
-do  i = 1  to  10 ;
-fact = fact*i ;
-output;
-end;
-proc print;  run;
+proc  format  lib=sasuser  fmtlib ;
+run ;
 
 
-data;
-input x1 - x3 ;
- m = mean(of  x1 - x3 );
-datalines;
-1 2 3
-2 4 5
-3 8 .
-8 . 4
-;
-proc print;  run;
+proc  contents data=survey;
+run;
+proc  contents  data=survey  varnum ; run;
 
-data;
-k = 2;  m = 1;
-y = poisson(1, k) ;
+
+data  ex11a (drop=tmp);
+ set  ex11 ;
+length  dept  $  6. ;
+tmp = substr(subject, 1, 1);
+ put  "tmp= " tmp ;
+ if  tmp="s"  then  dept= "数学";
+  else  if  tmp="k"  then  dept = "化学";
+  else  if  tmp="b"  then  dept = "物理";
+  else  dept = "その他";
+label  dept="学科" ; 
+proc  print  data = ex11a  label;
+run;
+
+
+data  s_ex11a  k_ex11a  o_ex11a ; 
+drop tmp;
+ set  ex11a ;
+length  dept  $  6. ;
+label  dept="学科" ; 
+tmp = substr(subject,1,1);
+ if  tmp="s"  then  do; 
+  dept= "数学";  
+output  s_ex11a; 
+ end;
+ else  if  tmp="k"  then  do ; 
+  dept = "化学";  
+output  k_ex11a; 
+ end;
+else do;  
+  dept = "その他";  
+output  o_ex11a; 
+ end;
+ run; 
+title "化学科データ" ; 
+ proc  print  data=k_ex11a  label;
+ run; 
+
+
+/***** 1.3	　いろいろなタイプのデータ入力  ******/
+title ; 
+data ; 
 file  print ;
-put  "P(Y <= " k ")="  y;
-run;
+ obs= _n_ ;
+input  y  ;
+ put  "y=" y  "obs= " _n_  ; 
+ cards;
+  11
+  15
+  8 
+  3
+ ;
+run:
+proc  print ; run;
 
-data;
-k = 2 ; m = 1;
-t = date();
-x = mdy(1,1,1961);
-d = day(x); m = month(x);  y = year(x);
-file print;
-put  "date()="  t;
-put  "mdy(1,1,1961)="  x;
-put  "day(x)="  d;
-put  "month(x)="  m;
-put  "year(x)="  y;
-run;
 
-data;
-infile  datalines  dlm=',';
-input id x y $;
-datalines;
-111, 1,ab
-112,2, cd
+data ; 
+input  y  ;
+idno + 1 ;
+ cards; 
+  11
+  15
+  8 
+  3
+  ;
+ proc  print ;  run;
+
+
+data ; 
+retain  indo  0 ;
+input x ;
+indo = indo + 1 ; 
+cards;
+10
+-3
+5
+9
+0
 ;
 proc print;run;
 
+
 data;
-input city $ x;
-if  city =:'y'  then  x=x+100;
+input  x;
+x_lag=lag(x);
+x_lag2=lag2(x);
+x_lag3=lag3(x);
 cards;
-tokyo 90
-yokohama 80
-yoyogi 80
-mejiro 70
+10
+-3
+5
+9
 ;
 proc print; run;
 
 
+data;
+input  x ;
+x_dif=dif(x);  
+x_dif2=dif2(x); 
+x_dif3=dif3(x);
+cards;
+10 
+ -3 
+ 5 
+ 9
+;
+proc print; run;
+
+
+data  repeat;
+input  id  gender$  y1  y2  y3;
+array  n_y{*}  _numeric_  ;
+do i=1  to  dim(n_y);
+  time=i;
+  y= n_y(i);
+  output;
+  end;
+keep  id  gender  time  y;
+cards; 
+001 M  1 2 3
+002 F   0 4 5
+003 F   10 11 12
+;
+run;
+proc print data=repeat; run;
+
+
+data one;
+input  x  y ;
+cards ;
+ 1  2
+ ;
+proc  print  data=one;  run;
+
+ data two;
+ if  _n_=1 then set one;
+ input z;
+ cards;
+ 10
+ 11
+ 12
+ ;
+ proc  print  data=two; run;
+
+
+data  two;
+merge  one;
+ input z;
+ cards;
+ 10
+ 11
+ 12
+ ;
+proc  print  data=two;
+run;
+
+
+data  two;
+ if  _n_=2  then  set one;
+ input  z ;
+ cards;
+ 10
+ 11
+ 12
+ ;
+ proc  print  data=two;  run;
+
+
+data  set1 ;
+input  id $  name $ ;
+cards;
+s201  a
+s202  b
+s203  c
+s205  e
+s208  h
+;
+proc  print  data= set1;  run;
+
+data  set2; 
+input  id $  score;
+cards;
+s201   80
+s202   67
+s205   92
+s207   100
+;
+proc  print  data= set2;  run;
+
+proc  sort  data= set1;
+by  id  ; 
+proc  sort  data= set2;
+by  id ;
+data  set3; 
+merge  set1  set2;
+by  id;
+proc  print  data= set3; run;
+
+
+data  set4 ;
+merge  set1(in=mis1)  set2 (in=mis2) ;
+by  id;
+put  mis1=   mis2=  ; 
+if  mis1  and  mis2;
+run; 
+proc  print  data=set4 ;  run;
+
+
+data  master;
+input  name $  x  y ;
+cards;
+a  11  30
+b  8   45
+c .     20
+e  15  50
+; 
+proc  print  data=master;  run;
+
+
+data  new;
+input  name $  x  z ;
+cards;
+a   3    100
+c   5    110
+d  55    130
+;
+proc  print  data=new; run;
+
+proc  sort  data=master;
+by  name;
+proc  sort  data=new;
+by  name;
+data  now; 
+update  master  new ;
+by  name ;
+run;
+proc  print  data= now;  run;
+
+
+data  comb;
+set  master  new;
+by  name ; 
+run;
+proc  print  data=comb;  run;
+
+data  two;
+ if  _n_=2  then  set  one;
+ input  z ;
+ cards;
+ 10
+ 11
+ 12
+ ;
+ proc  print  data=two;  run;
+
+
+
+data  one;
+input  group $  x;
+cards;
+ A 10
+ B 14
+ A 11
+ C 19
+ A 22
+ C 25
+ A 12
+ A 13
+ B 33
+ C 35
+ ; 
+ proc sort data=one;
+ by group;
+ run;
+proc  print  data=one;  run;
+
+data  two; 
+set  one;
+by group;
+first = first.group;
+last = last.group;
+
+proc  print  data=two;
+run;
+
+
+data  three;
+set  two;
+if  first=1  then  num=0; 
+num+1 ;
+if  last=1  then  output;
+keep  group  num;
+run;
+proc  print  data=three; 
+run;
+
+
+data one; 
+input  id  period  x ;
+cards;
+1  1  -4
+1  2  -2
+1  3   4
+2  1  -2
+2  2  1
+3  1  1
+3  2  5
+4  1  -1
+;
+proc  sort  data=one;
+by  id  period;
+proc  print  data=one;
+run;
+
+data  two;
+set  one;
+by  id;
+if  first.id=1  then  count=0; 
+if  x>0  then  count+1;
+if  last.id=1  then  output;
+drop  x;
+run;
+proc  print  data=two; run;
+
+
+data a;
+   do  block = 1  to  3 ;
+      do  site = 1  to  4 ; 
+         x = ranuni(0); 
+         output;
+      end;
+   end;
+proc  sort; 
+by  block  x ;
+data c ;  set a ;
+   trt = 1 + mod(_N_ - 1, 4);	
+/* mod = remainder of _N_/4 */
+proc sort;
+ by  block  site ;
+proc  print ;
+   var  block  site  trt ;
+run;
+
+
+data  weight2;  
+infile  datalines  missover; 
+input  IDnumber $  Week1  Week16;  
+WeightLoss2 = Week1 - Week16;
+datalines;  
+2477 195  163
+2431 
+2456 173  155
+2412 135  116
+;     
+proc print data=weight2; 
+run; 
+
+
+data  m999;
+array  d{*}  x1  x2  y1  y2  z ;
+input      x1  x2  y1  y2  z ;
+do  i =1 to 5;
+if  d{i} = 999  then  d{i}= .  ;
+end;
+drop i ; 
+cards;
+2 0 999 1 1
+1  2  3 4  999
+3 11 12 13 14
+;
+run; 
+proc  print  data=m999;
+run;
+
+
+data m999NA; 
+input  x  $  x1 y1 y2 z;
+array  n_d{*}  _numeric_ ;
+array  c_d{*}  _character_ ;
+do  i=1 to  dim(n_d);
+if  n_d{i}=999  then  n_d{i}= .  ;
+end;
+do  j=1 to dim(c_d);
+if  c_d{j}  in ('NA' 'na')  then  c_d{j}= " "  ;
+end;
+drop  i  j ;
+cards;
+a 0 999 1 1
+NA  2  3 4  999
+na 11 12 13 14
+;
+run;
+proc print data=m999NA;
+run;
+
+
+
+
+data  investment; 
+   begin = '01JAN2001'd;
+   end =  '31DEC2012'd;
+   cap=1000;
+   do  year  = year(begin)  to  year(end);  
+      cap=cap + 0.1*cap;
+      output;
+   end;
+put  "The number of DATA step iterations is " _n_; 
+run; 
+
+proc  print  data=investment ;
+   format  Cap  dollar12.2 ; 
+run; 
+
+
+
+data  dage;
+input  @1 dob  mmddyy10.  @13  dos  mmddyy8.  ;
+format  dob  dos  mmddyy10.  ;
+age1 = int((dos-dob) / 365.25) ;
+age2 = int(yrdif(dob , dos, 'actual' ));
+age3 = int(yrdif(dob , dos, 'age' ));
+age4 = int(yrdif(dob , '01jan2013'D , 'actual' ));
+age5 = int(yrdif(dob , today(), 'age' ));
+age6=intck('year', dob, dos);age3 = int(yrdif(dob , '01jan2013'D , 'actual' ));
+datalines;
+10/08/1955  03102012
+01/01/1960  06082011
+09/21/1975  08122012
+01/13/1966  01132013
+;
+proc print data=dage; run; 
+
+
+data  money;
+input  cost  $10. ;
+numcost= input(cost, yen7.); 
+put  numcost= comma.; 
+datalines;
+\1,000
+\23,450
+;
+run;
+
+data  datedata;
+input  date  $10. ;
+ndate= inputn(date, 'yymmdd10.');
+put  ndate= yymmdds.  ndate= nldate. ; 
+datalines; 
+2001/10/26
+2013/01/13
+;
+run;
+
+
+/*****  1.4	  Excel ファイルへの出力   ********/
+proc  export data= ex11 
+outfile = "C:\math\math_score.xls" 
+dbms=EXCEL  LABEL REPLACE;
+sheet="数学成績データ";
+run;
+
+
+options  noxwait  noxsync;
+x  "C:\sas_study\randata.xls";
+filename  random dde  'excel|sheet1!r1c1:r10c2';
+data  ran ;
+file  random;
+   do  i=0 to 10 ;
+      y=ranuni(i) ; 
+      put  i  y ; 
+   end;
+run;
+
+
+/********* 1 演習  *******************/
+
+proc  import  out= ex13a
+            datafile= "C:\sas_study\ex15a.csv" 
+            dbms=csv  REPLACE;
+         getnames=YES; 
+	 datarow=3;
+run;
+proc print data=ex13a;run;
+
+
+proc  format ;
+value  avegf 0="F"  1="C" 2="B" 3="A"  ; 
+run;
+data  ex11g;
+set  ex11;
+if  math1 ne .  then  aveg=(ave ge 80)+(ave ge 70)+(ave ge 60) ; 
+format  aveg  avegf. ;
+run:
+proc  print  data=ex11g; run;
+
+data; 
+retain  idno  5 ;
+input  x ;
+idno= idno+1 ;
+cards; 
+10
+-3
+5
+9
+0
+;
+proc print; run;
+
+data; 
+*retain  idno  0 ;
+input  x ;
+idno= idno+1 ;
+cards; 
+10
+-3
+5
+9
+0
+;
+proc print; run;
+
+
+data  repeat;
+input  id  gender $  y1  y2  y3;
+array  n_y{*}  _numeric_  ;
+do  i= 2  to  dim(n_y);
+  time= i;
+  y= n_y(i);
+  output;
+  end;
+keep  id  gender  time  y;
+cards; 
+001 M  1 2 3
+002 F   0 4 5
+003 F   10 11 12
+;
+run;
+proc  print  data=repeat ;  run;
+
+data  repeat;
+input  id  gender $  y1  y2  y3;
+array  n_y{*}  y1-y3  ;
+do  i= 1  to  dim(n_y);
+  time= i;
+  y= n_y(i);
+  output;
+  end;
+keep  id  gender  time  y;
+cards; 
+001 M  1 2 3
+002 F   0 4 5
+003 F   10 11 12
+;
+run;
+proc  print  data=repeat ;  run;
+
+
+
+data  one;
+input  x  y ;
+cards ;
+ 1  2
+ ;
+proc  print  data=one;  run;
+
+data  two;
+ if  _n_=2  then  set  one ;
+ input  z;
+ cards;
+ 10
+ 11
+ 12
+ ;
+ proc  print  data=two;  run;
+
+
+
+data  one;
+input  x  y ;
+cards ;
+ 1  2
+ ;
+proc  print  data=one;  run;
+
+data  two;
+ *if  _n_=1  then  set  one ;
+ input  z;
+ cards;
+ 10
+ 11
+ 12
+ ;
+ proc  print  data=two;  run;
+
+
+data ex18(drop=i);
+input gender $  height   weight ; 
+array  hc{*}  height  weight ;
+do i = 1 to 2;
+  if hc{i}=-99 then hc{i}=. ;
+end;
+cards ;
+F         156     50
+M         160    -99
+F         162     52
+M        -99      71
+;
+proc print data=ex18;
+run; 
+
+
+data  dage;
+input  @1  dob  mmddyy10.  @13  dos  mmddyy8.  ;
+*format  dob  dos  mmddyy10.  ;
+age1 = int ((dos-dob) / 365.25) ;
+age2 = int (yrdif (dob ,  dos ,  'actual' ));
+age3 = int (yrdif (dob ,  dos ,  'age' ));
+age4 = int (yrdif (dob ,  '01jan2013'D ,  'actual' ));
+age5 = int (yrdif (dob ,  today() ,  'age' ));
+age6=intck ('year' , dob ,  dos);
+datalines;
+10/08/1955  03102012
+01/01/1960  06082011
+09/21/1975  08122012
+01/13/1966  01132013
+;
+proc print data=dage; run; 
+
+
+
+data  mova;
+input  y @@;
+time+1;
+y0= y;
+y1= lag(y);
+y2= lag2(y);
+y3= lag3(y);
+if  _n_  ge 4  then do;
+movav= mean(of y0-y3);
+output;
+end;
+drop  y0-y3;
+cards;
+1 3 4 8 10 9 5 3 3
+;
+proc  print  data=mova; run;
+
+
+
+
+data  a ;
+input  id  x  y  z $ ;
+cards;
+1  10  .    m
+2  13  100  m
+3  15  130  f
+;
+run;
+
+
+data  b ; 
+input  id  x  z  $ w ;
+cards;
+1  11   f   56
+3  14   m  57
+4  19   f   58
+5  19   m  59
+;
+run ;
+proc print data=a;
+proc print data=b;
+run;
+/*c1*/
+proc  sort  data= a;
+by  id  ; 
+proc  sort  data= b;
+by  id ;
+data  c1; 
+merge  a b ;
+by  id;
+proc  print  data= c1; run;
+/*c1*/
+
+/*c3*/
+data c1;
+set a b ;
+run;
+proc print data=c1;
+run; 
+/*c3*/
+
+
+
+data samp (drop= size  i  u);
+size=6; 
+do i= 1 to size;
+u= ranuni(0);
+k= ceil(n*u);
+set ex11 point=k nobs=n;
+output;
+end;
+stop;
+run;
+proc print data=samp; run;
+
+
+data samp2(drop= size  u left  p);
+size= 6;
+left= n;
+do while(size > 0);
+k+1;
+u=ranuni(0);
+p=size/left;
+if u<p then do;
+ set ex11 point=k nobs=n;
+ output;
+     size= size-1;
+   end;
+ left= left-1;
+ end ;
+ stop ;
+ run;
+ proc print data=samp2; run;
